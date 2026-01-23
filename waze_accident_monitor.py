@@ -243,8 +243,8 @@ def main():
     # Create monitor and start
     monitor = WazeAccidentMonitor(TELEGRAM_BOT_TOKEN, TELEGRAM_CHANNEL_ID)
     
-    # Check every 5 minutes (300 seconds)
-    monitor.monitor_and_post(check_interval=300)
+    # Check every 2 minutes (120 seconds)
+    monitor.monitor_and_post(check_interval=120)
 
 
 if __name__ == "__main__":
