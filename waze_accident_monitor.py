@@ -60,19 +60,22 @@ class WazeAccidentMonitor:
     
     def filter_accidents(self, alerts: List[Dict]) -> List[Dict]:
         """
-        Filter alerts to get only accidents
+        Filter alerts to get only accidents in Singapore
         
         Args:
             alerts: List of all alerts
             
         Returns:
-            List of accident alerts
+            List of accident alerts in Singapore only
         """
         accident_types = ['ACCIDENT', 'ACCIDENT_MINOR', 'ACCIDENT_MAJOR']
         accidents = [
             alert for alert in alerts 
-            if alert.get('type', '').upper() in accident_types or 
-            alert.get('subtype', '').upper() in accident_types
+            if (alert.get('type', '').upper() in accident_types or 
+                alert.get('subtype', '').upper() in accident_types) and
+               (alert.get('country', '').upper() in ['SG', 'SN'] or 
+                'SINGAPORE' in alert.get('city', '').upper() or
+                alert.get('city', '') in ['Outram', 'Kallang', 'Geylang', 'Bukit Timah', 'Sentosa', 'Tampines', 'Woodlands', 'Jurong', 'Bedok', 'Punggol', 'Sengkang', 'Yishun', 'Ang Mo Kio', 'Bishan', 'Toa Payoh', 'Queenstown', 'Clementi', 'Pasir Ris', 'Sembawang', 'Marine Parade'])
         ]
         return accidents
     
@@ -235,16 +238,16 @@ def main():
     Main function to run the monitor
     """
     # Get credentials from environment variables or set them here
-    TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', '8339261439:AAG1DdDGnd_vY6QPBk9zsZFEL9obtncSXQA')
-    TELEGRAM_CHANNEL_ID = os.getenv('TELEGRAM_CHANNEL_ID', '-1003329968129')
+    TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', '8500211695:AAFBFHrFII_ygxnmBjcFy0QsQqZQKfztV3U')
+    TELEGRAM_CHANNEL_ID = os.getenv('TELEGRAM_CHANNEL_ID', '-1003683261194')
     
     # Bot token and channel ID are already configured
     
     # Create monitor and start
     monitor = WazeAccidentMonitor(TELEGRAM_BOT_TOKEN, TELEGRAM_CHANNEL_ID)
     
-    # Check every 2 minutes (120 seconds)
-    monitor.monitor_and_post(check_interval=120)
+    # Check every 1 minute (60 seconds)
+    monitor.monitor_and_post(check_interval=60)
 
 
 if __name__ == "__main__":
