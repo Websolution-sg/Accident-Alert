@@ -1,14 +1,24 @@
-# Waze Accident Monitor for Telegram
+# Enhanced Waze Accident Monitor for Telegram
 
-This application monitors Waze for accident occurrences in Singapore and automatically posts them to your Telegram channel.
+This application monitors **multiple sources** for accident occurrences in Singapore and automatically posts them to your Telegram channel with smart duplicate prevention.
 
-## Features
+## ✨ Enhanced Features
 
-- 🚨 Real-time accident monitoring from Waze
-- 📱 Automatic posting to Telegram channel
-- 📍 Location details with Google Maps and Waze links
-- ⏰ Configurable check intervals
-- 🔄 Prevents duplicate posts
+- 🚨 **Dual Source Monitoring**: Monitors both Waze API and @sgaccident Telegram channel
+- 📱 **Smart Telegram Integration**: Posts to your channel with rich formatting
+- 📍 **Coordinate Extraction**: Automatically extracts location coordinates from text
+- 🗺️ **Interactive Maps**: Generates Google Maps and Waze navigation links
+- 🚫 **Duplicate Prevention**: Prevents posting same accident location twice
+- 🔧 **Address Normalization**: Standardizes addresses to avoid duplicates
+- ⏰ **Configurable Intervals**: Adjustable check frequency
+- 🛡️ **Robust Error Handling**: Continues running despite API issues
+
+## 🔄 How It Works
+
+1. **Waze API Monitoring**: Fetches real-time accident data from Waze's live map
+2. **Telegram Channel Monitoring**: Watches @sgaccident for new accident posts
+3. **Smart Processing**: Extracts coordinates, normalizes addresses, prevents duplicates
+4. **Enhanced Posting**: Sends formatted alerts with map links to your channel
 
 ## Setup Instructions
 

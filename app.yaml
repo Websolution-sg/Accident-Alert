@@ -7,3 +7,7 @@ instance_class: F1
 automatic_scaling:
   min_instances: 1
   max_instances: 1
+
+env_variables:
+  TELEGRAM_BOT_TOKEN: "8339261439:AAG1DdDGnd_vY6QPBk9zsZFEL9obtncSXQA"
+  TELEGRAM_CHANNEL_ID: "-1003329968129"

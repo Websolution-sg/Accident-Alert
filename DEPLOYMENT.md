@@ -1,8 +1,43 @@
+# Deploy Enhanced Waze Accident Monitor to Google Cloud
+
+This guide shows you how to deploy the **Enhanced Waze Accident Monitor** to Google Cloud.
+
+## ✨ New Features in This Version:
+- **Dual Monitoring**: Monitors both Waze API and @sgaccident Telegram channel
+- **Coordinate Extraction**: Automatically extracts location coordinates from text
+- **Map Links**: Generates Google Maps and Waze navigation links
+- **Duplicate Prevention**: Prevents posting same accident location twice
+- **Smart Address Normalization**: Standardizes addresses to avoid duplicates
+
+## Option 1: Google Cloud App Engine (Recommended for Serverless)
+
+### Step 1: Set Up Google Cloud
+1. Go to https://cloud.google.com/ and create/sign in to your account
+2. Create a new project or select existing one
+3. Enable the App Engine API
+4. Install Google Cloud SDK on your local machine
+
+### Step 2: Deploy with App Engine
+```bash
+# Clone the repository
+git clone https://github.com/Websolution-sg/Accident-Alert.git
+cd Accident-Alert
+
 # Deploy to Google Cloud
+gcloud app deploy
 
-This guide shows you how to deploy the Waze Accident Monitor to Google Cloud.
+# View logs
+gcloud app logs tail -s default
+```
 
-## Option 1: Google Compute Engine (VM) - Recommended for 24/7 monitoring
+### Step 3: Monitor the Application
+- View in Google Cloud Console: App Engine → Versions
+- Check logs: App Engine → Logs
+- Monitor metrics: App Engine → Monitoring
+
+---
+
+## Option 2: Google Compute Engine (VM) - Recommended for 24/7 monitoring
 
 ### Step 1: Create a Google Cloud Account
 1. Go to https://cloud.google.com/
@@ -33,8 +68,8 @@ sudo apt-get update
 sudo apt-get install -y python3-pip git
 
 # Clone your repository
-git clone https://github.com/Websolution-sg/SOS.git
-cd SOS
+git clone https://github.com/Websolution-sg/Accident-Alert.git
+cd Accident-Alert
 
 # Install dependencies
 pip3 install -r requirements.txt
@@ -60,8 +95,8 @@ After=network.target
 [Service]
 Type=simple
 User=YOUR_USERNAME
-WorkingDirectory=/home/YOUR_USERNAME/SOS
-ExecStart=/usr/bin/python3 /home/YOUR_USERNAME/SOS/waze_accident_monitor.py
+WorkingDirectory=/home/YOUR_USERNAME/Accident-Alert
+ExecStart=/usr/bin/python3 /home/YOUR_USERNAME/Accident-Alert/waze_accident_monitor.py
 Restart=always
 RestartSec=10
 
