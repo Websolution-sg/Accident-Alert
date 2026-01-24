@@ -1,616 +1,399 @@
-"""
-Waze Accident Monitor - Extracts accident occurrences and posts to Telegram
-Secondary Instance for Channel -1003683261194
-"""
+#!/usr/bin/env python3
 import requests
 import json
 import time
-from datetime import datetime
-from typing import List, Dict, Set
+import datetime
 import os
 import re
-import sys
+from urllib.parse import quote
 
-# Ensure unbuffered output for systemd logging
-sys.stdout.reconfigure(line_buffering=True)
-sys.stderr.reconfigure(line_buffering=True)
+# Configuration
+BOT_TOKEN = "8500211695:AAFBFHrFII_ygxnmBjcFy0QsQqZQKfztV3U"
+CHAT_ID = "-1003683261194"
+SGACCIDENT_CHAT_ID = "-1001486947378"
+WAZE_API_URL = "https://www.waze.com/live-map/api/georss"
+SINGAPORE_BOUNDS = {
+    "north": 1.4784,
+    "south": 1.1496,
+    "east": 104.0853,
+    "west": 103.6065
+}
 
-class WazeAccidentMonitor:
-    def __init__(self, telegram_bot_token: str, telegram_channel_id: str):
-        """
-        Initialize the Waze Accident Monitor
-        
-        Args:
-            telegram_bot_token: Your Telegram bot token from @BotFather
-            telegram_channel_id: Your Telegram channel ID (e.g., @yourchannel or -100xxxxxxxxx)
-        """
-        self.telegram_bot_token = telegram_bot_token
-        self.telegram_channel_id = telegram_channel_id
-        self.telegram_api_url = f"https://api.telegram.org/bot{telegram_bot_token}"
-        self.posted_accidents: Set[str] = set()
-        self.posted_addresses: Set[str] = set()  # Track posted addresses to prevent duplicates
-        self.processed_messages: Set[str] = set()  # Track processed messages from sgaccident
-        self.last_update_id = None  # Track last processed update ID
-        
-        # Singapore bounding box
-        self.bbox = {
-            'bottom': 1.1304753,
-            'left': 103.6055424,
-            'right': 104.0945619,
-            'top': 1.4764671
-        }
-        
-    def get_waze_alerts(self) -> List[Dict]:
-        """
-        Fetch alerts from Waze API for Singapore
-        
-        Returns:
-            List of alert dictionaries
-        """
-        # Waze Live Map API endpoint
-        url = "https://www.waze.com/live-map/api/georss"
-        
-        params = {
-            'bottom': self.bbox['bottom'],
-            'left': self.bbox['left'],
-            'right': self.bbox['right'],
-            'top': self.bbox['top'],
-            'env': 'row',
-            'types': 'alerts,traffic'
-        }
-        
-        try:
-            response = requests.get(url, params=params, timeout=10)
-            response.raise_for_status()
-            data = response.json()
-            return data.get('alerts', [])
-        except requests.RequestException as e:
-            print(f"Error fetching Waze data: {e}")
-            return []
-    
-    def filter_accidents(self, alerts: List[Dict]) -> List[Dict]:
-        """
-        Filter alerts to get only accidents in Singapore
-        
-        Args:
-            alerts: List of all alerts
-            
-        Returns:
-            List of accident alerts in Singapore only
-        """
-        accident_types = ['ACCIDENT', 'ACCIDENT_MINOR', 'ACCIDENT_MAJOR']
-        accidents = [
-            alert for alert in alerts 
-            if (alert.get('type', '').upper() in accident_types or 
-                alert.get('subtype', '').upper() in accident_types) and
-               (alert.get('country', '').upper() in ['SG', 'SN'] or 
-                'SINGAPORE' in alert.get('city', '').upper() or
-                alert.get('city', '') in ['Outram', 'Kallang', 'Geylang', 'Bukit Timah', 'Sentosa', 'Tampines', 'Woodlands', 'Jurong', 'Bedok', 'Punggol', 'Sengkang', 'Yishun', 'Ang Mo Kio', 'Bishan', 'Toa Payoh', 'Queenstown', 'Clementi', 'Pasir Ris', 'Sembawang', 'Marine Parade'])
-        ]
-        return accidents
-    
-    def format_accident_message(self, accident: Dict) -> str:
-        """
-        Format accident information for Telegram message
-        
-        Args:
-            accident: Accident alert dictionary
-            
-        Returns:
-            Formatted message string
-        """
-        # Extract information
-        accident_type = accident.get('type', 'ACCIDENT')
-        subtype = accident.get('subtype', '')
-        street = accident.get('street', 'Unknown location')
-        city = accident.get('city', 'Singapore')
-        country = accident.get('country', 'SG')
-        reported_by = accident.get('reportBy', 'Waze user')
-        confidence = accident.get('confidence', 0)
-        reliability = accident.get('reliability', 0)
-        
-        # Get coordinates
-        location = accident.get('location', {})
-        lat = location.get('y', 0)
-        lon = location.get('x', 0)
-        
-        # Get timestamp
-        pub_millis = accident.get('pubMillis', 0)
-        if pub_millis:
-            report_time = datetime.fromtimestamp(pub_millis / 1000).strftime('%Y-%m-%d %H:%M:%S')
-        else:
-            report_time = 'Unknown time'
-        
-        # Format message
-        emoji = "🚨"
-        if 'MAJOR' in str(subtype).upper() or 'MAJOR' in str(accident_type).upper():
-            emoji = "🚨🚨🚨"
-        elif 'MINOR' in str(subtype).upper() or 'MINOR' in str(accident_type).upper():
-            emoji = "⚠️"
-            
-        message = f"{emoji} *ACCIDENT ALERT* {emoji}\n\n"
-        message += f"📍 *Location:* {street}, {city}\n"
-        message += f"🕐 *Reported:* {report_time}\n"
-        
-        if subtype:
-            message += f"📊 *Type:* {subtype.replace('_', ' ').title()}\n"
-        
-        message += f"👤 *Reported by:* {reported_by}\n"
-        message += f"📈 *Confidence:* {confidence}/10\n"
-        message += f"✅ *Reliability:* {reliability}/10\n"
-        
-        if lat and lon:
-            google_maps_link = f"https://www.google.com/maps?q={lat},{lon}"
-            waze_link = f"https://www.waze.com/ul?ll={lat},{lon}&navigate=yes"
-            message += f"\n🗺️ [View on Google Maps]({google_maps_link})\n"
-            message += f"🚗 [Open in Waze]({waze_link})\n"
-        
-        return message
-    
-    def send_telegram_message(self, message: str) -> bool:
-        """
-        Send message to Telegram channel
-        
-        Args:
-            message: Message to send
-            
-        Returns:
-            True if successful, False otherwise
-        """
-        url = f"{self.telegram_api_url}/sendMessage"
-        
-        payload = {
-            'chat_id': self.telegram_channel_id,
-            'text': message,
-            'parse_mode': 'Markdown',
-            'disable_web_page_preview': False
-        }
-        
-        try:
-            response = requests.post(url, json=payload, timeout=10)
-            response.raise_for_status()
-            return True
-        except requests.RequestException as e:
-            print(f"Error sending Telegram message: {e}")
-            return False
+# File to store processed accident IDs and duplicate tracking
+PROCESSED_FILE = "processed_accidents.json"
+TELEGRAM_OFFSET_FILE = "telegram_offset.json"
 
-    def get_channel_updates(self) -> List[Dict]:
-        """
-        Get updates from Telegram, including messages from channels
-        
-        Returns:
-            List of update dictionaries
-        """
-        url = f"{self.telegram_api_url}/getUpdates"
-        
-        params = {
-            'timeout': 10,
-            'limit': 100
+def log_message(message):
+    """Log messages with timestamp"""
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    print(f"[{timestamp}] {message}")
+
+def load_processed_accidents():
+    """Load the list of processed accident IDs"""
+    try:
+        if os.path.exists(PROCESSED_FILE):
+            with open(PROCESSED_FILE, 'r') as f:
+                data = json.load(f)
+                return data.get('waze_accidents', set()), data.get('telegram_accidents', set())
+    except Exception as e:
+        log_message(f"Error loading processed accidents: {e}")
+    return set(), set()
+
+def save_processed_accidents(waze_accidents, telegram_accidents):
+    """Save the list of processed accident IDs"""
+    try:
+        data = {
+            'waze_accidents': list(waze_accidents),
+            'telegram_accidents': list(telegram_accidents)
         }
-        
-        if self.last_update_id:
-            params['offset'] = self.last_update_id + 1
-        
-        try:
-            response = requests.get(url, params=params, timeout=15)
-            response.raise_for_status()
-            data = response.json()
-            
-            if data.get('ok'):
-                updates = data.get('result', [])
-                if updates:
-                    self.last_update_id = updates[-1]['update_id']
-                return updates
-            else:
-                print(f"Telegram API error: {data.get('description', 'Unknown error')}")
-                return []
-                
-        except requests.RequestException as e:
-            print(f"Error fetching updates: {e}")
-            return []
+        with open(PROCESSED_FILE, 'w') as f:
+            json.dump(data, f)
+    except Exception as e:
+        log_message(f"Error saving processed accidents: {e}")
+
+def load_telegram_offset():
+    """Load the last processed telegram update ID"""
+    try:
+        if os.path.exists(TELEGRAM_OFFSET_FILE):
+            with open(TELEGRAM_OFFSET_FILE, 'r') as f:
+                return json.load(f).get('offset', 0)
+    except Exception as e:
+        log_message(f"Error loading telegram offset: {e}")
+    return 0
+
+def save_telegram_offset(offset):
+    """Save the telegram update offset"""
+    try:
+        with open(TELEGRAM_OFFSET_FILE, 'w') as f:
+            json.dump({'offset': offset}, f)
+    except Exception as e:
+        log_message(f"Error saving telegram offset: {e}")
+
+def normalize_address(address):
+    """Normalize address for duplicate detection"""
+    if not address:
+        return ""
     
-    def extract_coordinates(self, text: str) -> tuple:
-        """
-        Extract coordinates from text using various patterns
-        
-        Args:
-            text: Message text to search for coordinates
-            
-        Returns:
-            Tuple of (latitude, longitude) or (None, None) if not found
-        """
-        if not text:
-            return None, None
-            
-        # Pattern 1: Decimal degrees (1.234567, 103.123456)
-        decimal_pattern = r'[-+]?([1-8]?\d(?:\.\d+)?|90(?:\.0+)?),\s*[-+]?(180(?:\.0+)?|1[0-7]\d(?:\.\d+)?|\d{1,2}(?:\.\d+)?)'
-        
-        # Pattern 2: Google Maps links
-        gmaps_pattern = r'maps\.google\.com[^\s]*[@,](-?\d+\.\d+),(-?\d+\.\d+)'
-        
-        # Pattern 3: Waze links
-        waze_pattern = r'waze\.com[^\s]*ll=(-?\d+\.\d+),(-?\d+\.\d+)'
-        
-        # Pattern 4: Location pins or coordinates in various formats
-        coord_pattern = r'(?:lat|latitude)[:\s]*(-?\d+\.\d+)[\s,]+(?:lon|lng|longitude)[:\s]*(-?\d+\.\d+)'
-        
-        # Try each pattern
-        patterns = [
-            (decimal_pattern, lambda m: (float(m.group().split(',')[0]), float(m.group().split(',')[1]))),
-            (gmaps_pattern, lambda m: (float(m.group(1)), float(m.group(2)))),
-            (waze_pattern, lambda m: (float(m.group(1)), float(m.group(2)))),
-            (coord_pattern, lambda m: (float(m.group(1)), float(m.group(2))))
-        ]
-        
-        for pattern, extractor in patterns:
-            match = re.search(pattern, text, re.IGNORECASE)
-            if match:
-                try:
-                    lat, lon = extractor(match)
-                    # Validate Singapore coordinates roughly
-                    if 1.0 <= lat <= 1.5 and 103.6 <= lon <= 104.1:
-                        return lat, lon
-                except (ValueError, IndexError):
-                    continue
-                    
-        return None, None
+    # Convert to lowercase
+    address = address.lower()
     
-    def addresses_similar(self, addr1: str, addr2: str) -> bool:
-        """
-        Check if two addresses are similar enough to be considered duplicates
-        
-        Args:
-            addr1: First address
-            addr2: Second address
-            
-        Returns:
-            True if addresses are similar
-        """
-        if not addr1 or not addr2:
-            return False
-            
-        # Normalize both addresses
-        norm1 = self.normalize_address(addr1).lower()
-        norm2 = self.normalize_address(addr2).lower()
-        
-        # Exact match
-        if norm1 == norm2:
-            return True
-            
-        # Check if one contains the other (for different detail levels)
-        if norm1 in norm2 or norm2 in norm1:
-            return True
-            
-        # Split into words and check overlap
-        words1 = set(norm1.split())
-        words2 = set(norm2.split())
-        
-        # If more than 70% of words overlap, consider similar
-        if words1 and words2:
-            overlap = len(words1.intersection(words2))
-            min_words = min(len(words1), len(words2))
-            if overlap / min_words > 0.7:
-                return True
-                
+    # Remove common words and standardize
+    replacements = {
+        r'\brd\b': 'road',
+        r'\bst\b': 'street',
+        r'\bave\b': 'avenue',
+        r'\bdr\b': 'drive',
+        r'\bblvd\b': 'boulevard',
+        r'\bhwy\b': 'highway',
+        r'\bpkwy\b': 'parkway',
+        r'\bln\b': 'lane',
+        r'\bpl\b': 'place',
+        r'\bct\b': 'court',
+        r'\bcir\b': 'circle',
+        r'\bsq\b': 'square'
+    }
+    
+    for pattern, replacement in replacements.items():
+        address = re.sub(pattern, replacement, address)
+    
+    # Remove special characters and extra spaces
+    address = re.sub(r'[^\w\s]', ' ', address)
+    address = re.sub(r'\s+', ' ', address)
+    
+    return address.strip()
+
+def addresses_similar(addr1, addr2, threshold=0.7):
+    """Check if two addresses are similar enough to be considered duplicates"""
+    if not addr1 or not addr2:
         return False
-        
-    def normalize_address(self, address: str) -> str:
-        """
-        Normalize address string for duplicate detection
-        
-        Args:
-            address: Raw address string
-            
-        Returns:
-            Normalized address string
-        """
-        if not address:
-            return ""
-            
-        # Convert to lowercase and strip whitespace
-        normalized = address.lower().strip()
-        
-        # Remove common prefixes and suffixes
-        prefixes_to_remove = ['accident at', 'accident along', 'at', 'along', 'near', 'opposite', 'opp']
-        for prefix in prefixes_to_remove:
-            if normalized.startswith(prefix + ' '):
-                normalized = normalized[len(prefix):].strip()
-        
-        # Standardize road abbreviations
-        road_replacements = {
-            ' rd': ' road',
-            ' st': ' street', 
-            ' ave': ' avenue',
-            ' blvd': ' boulevard',
-            ' hwy': ' highway',
-            ' expy': ' expressway',
-            ' tpk': ' turnpike',
-            ' cres': ' crescent',
-            ' gdns': ' gardens',
-            ' pk': ' park',
-            ' sq': ' square'
+    
+    norm1 = normalize_address(addr1)
+    norm2 = normalize_address(addr2)
+    
+    if norm1 == norm2:
+        return True
+    
+    # Simple similarity check
+    words1 = set(norm1.split())
+    words2 = set(norm2.split())
+    
+    if len(words1) == 0 and len(words2) == 0:
+        return True
+    if len(words1) == 0 or len(words2) == 0:
+        return False
+    
+    intersection = len(words1.intersection(words2))
+    union = len(words1.union(words2))
+    
+    similarity = intersection / union if union > 0 else 0
+    return similarity >= threshold
+
+def send_telegram_message(message):
+    """Send message to Telegram"""
+    try:
+        url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+        payload = {
+            "chat_id": CHAT_ID,
+            "text": message,
+            "parse_mode": "HTML"
+        }
+        response = requests.post(url, json=payload)
+        if response.status_code == 200:
+            log_message(f"Message sent successfully")
+            return True
+        else:
+            log_message(f"Failed to send message: {response.text}")
+            return False
+    except Exception as e:
+        log_message(f"Error sending message: {e}")
+        return False
+
+def get_waze_accidents():
+    """Fetch accidents from Waze API"""
+    try:
+        params = {
+            "top": SINGAPORE_BOUNDS["north"],
+            "bottom": SINGAPORE_BOUNDS["south"],
+            "left": SINGAPORE_BOUNDS["west"],
+            "right": SINGAPORE_BOUNDS["east"],
+            "env": "row",
+            "types": "alerts"
         }
         
-        for abbrev, full in road_replacements.items():
-            normalized = normalized.replace(abbrev, full)
-            
-        # Remove extra spaces and punctuation
-        normalized = re.sub(r'[^\w\s]', ' ', normalized)
-        normalized = re.sub(r'\s+', ' ', normalized).strip()
-        
-        return normalized
-    
-    def extract_address_from_waze(self, accident: Dict) -> str:
-        """
-        Extract and normalize address from Waze accident data
-        
-        Args:
-            accident: Waze accident dictionary
-            
-        Returns:
-            Normalized address string
-        """
-        street = accident.get('street', '')
-        city = accident.get('city', '')
-        
-        if street and city:
-            full_address = f"{street}, {city}"
-        elif street:
-            full_address = street
-        elif city:
-            full_address = city
+        response = requests.get(WAZE_API_URL, params=params, timeout=30)
+        if response.status_code == 200:
+            return response.json()
         else:
-            # Use coordinates as fallback
-            location = accident.get('location', {})
-            lat = location.get('y', 0)
-            lon = location.get('x', 0)
-            if lat and lon:
-                full_address = f"coordinates_{lat:.4f}_{lon:.4f}"
-            else:
-                full_address = "unknown_location"
-                
-        return self.normalize_address(full_address)
+            log_message(f"Failed to fetch Waze data: {response.status_code}")
+            return None
+    except Exception as e:
+        log_message(f"Error fetching Waze accidents: {e}")
+        return None
+
+def get_telegram_updates(offset=0):
+    """Get updates from Telegram bot API"""
+    try:
+        url = f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates"
+        params = {
+            "offset": offset,
+            "limit": 100,
+            "timeout": 30
+        }
+        response = requests.get(url, params=params, timeout=35)
+        if response.status_code == 200:
+            return response.json()
+        else:
+            log_message(f"Failed to get telegram updates: {response.text}")
+            return None
+    except Exception as e:
+        log_message(f"Error getting telegram updates: {e}")
+        return None
+
+def extract_location_from_message(text):
+    """Extract location information from @sgaccident message"""
+    if not text:
+        return None
     
-    def extract_address_from_text(self, text: str) -> str:
-        """
-        Extract and normalize address from message text
+    # Look for location patterns
+    location_patterns = [
+        r'(?:at|near|along)\s+([^\.!?\n]+?)(?:\.|!|\?|$|\n)',
+        r'([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\s+(?:Road|Street|Avenue|Drive|Boulevard|Highway|Expressway|Way|Lane|Place|Court|Circle))',
+        r'(\w+\s+\w+(?:\s+\w+)*)\s*(?:accident|crash|collision)',
+    ]
+    
+    for pattern in location_patterns:
+        matches = re.findall(pattern, text, re.IGNORECASE)
+        if matches:
+            location = matches[0].strip()
+            if len(location) > 3:  # Filter out very short matches
+                return location
+    
+    # If no specific location pattern, try to extract from the first sentence
+    sentences = text.split('.')
+    if sentences:
+        first_sentence = sentences[0].strip()
+        # Remove common prefixes
+        prefixes = ['accident', 'crash', 'collision', 'reported', 'alert']
+        for prefix in prefixes:
+            first_sentence = re.sub(f'^{prefix}\\s*', '', first_sentence, flags=re.IGNORECASE)
         
-        Args:
-            text: Message text
+        if len(first_sentence) > 5 and len(first_sentence) < 100:
+            return first_sentence
+    
+    return None
+
+def format_sgaccident_message(original_text, location, timestamp):
+    """Format @sgaccident message to match Waze format"""
+    # Create a Waze-style message
+    waze_message = f"🚨 <b>Accident Alert</b>\n\n"
+    waze_message += f"📍 <b>Location:</b> {location}\n"
+    waze_message += f"⏰ <b>Reported:</b> {timestamp}\n"
+    waze_message += f"📱 <b>Source:</b> Community Report\n\n"
+    waze_message += f"ℹ️ <i>Please drive safely and consider alternative routes</i>"
+    
+    return waze_message
+
+def process_waze_accidents():
+    """Process new accidents from Waze"""
+    log_message("Checking Waze API for new accidents...")
+    
+    waze_processed, telegram_processed = load_processed_accidents()
+    
+    waze_data = get_waze_accidents()
+    if not waze_data:
+        return
+    
+    alerts = waze_data.get("alerts", [])
+    new_accidents = 0
+    
+    for alert in alerts:
+        if alert.get("type") == "ACCIDENT":
+            accident_id = alert.get("uuid")
+            if not accident_id or accident_id in waze_processed:
+                continue
             
-        Returns:
-            Normalized address string
-        """
+            location = alert.get("location", {})
+            street = alert.get("street", "Unknown location")
+            city = alert.get("city", "Singapore")
+            country = alert.get("country", "SG")
+            
+            # Check for cross-source duplicates with telegram accidents
+            is_duplicate = False
+            for telegram_id in telegram_processed:
+                if addresses_similar(street, telegram_id):
+                    log_message(f"Skipping Waze accident - duplicate with Telegram: {street}")
+                    is_duplicate = True
+                    break
+            
+            if is_duplicate:
+                waze_processed.add(accident_id)
+                continue
+            
+            # Format the message
+            message = f"🚨 <b>Accident Alert</b>\n\n"
+            message += f"📍 <b>Location:</b> {street}, {city}\n"
+            message += f"🗺️ <b>Coordinates:</b> {location.get('y', 'N/A')}, {location.get('x', 'N/A')}\n"
+            message += f"⏰ <b>Reported:</b> {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+            message += f"📱 <b>Source:</b> Waze\n\n"
+            message += f"ℹ️ <i>Please drive safely and consider alternative routes</i>"
+            
+            if send_telegram_message(message):
+                waze_processed.add(accident_id)
+                new_accidents += 1
+                log_message(f"New Waze accident reported: {street}")
+                time.sleep(1)  # Rate limiting
+    
+    save_processed_accidents(waze_processed, telegram_processed)
+    if new_accidents > 0:
+        log_message(f"Processed {new_accidents} new Waze accidents")
+
+def process_sgaccident_updates():
+    """Process updates from @sgaccident channel"""
+    log_message("Checking @sgaccident channel for new posts...")
+    
+    waze_processed, telegram_processed = load_processed_accidents()
+    current_offset = load_telegram_offset()
+    
+    updates = get_telegram_updates(current_offset)
+    if not updates or not updates.get('ok'):
+        return
+    
+    new_accidents = 0
+    latest_offset = current_offset
+    
+    for update in updates.get('result', []):
+        update_id = update.get('update_id')
+        latest_offset = max(latest_offset, update_id + 1)
+        
+        # Check if it's a channel post from @sgaccident
+        channel_post = update.get('channel_post')
+        if not channel_post:
+            continue
+        
+        chat = channel_post.get('chat', {})
+        if str(chat.get('id')) != SGACCIDENT_CHAT_ID:
+            continue
+        
+        text = channel_post.get('text', '')
         if not text:
-            return ""
-            
-        # Look for common Singapore location patterns
-        location_patterns = [
-            r'accident (?:at|along|near) ([^\n]+)',
-            r'(?:at|along|near) ([^,\n]+)',
-            r'([A-Z][^\n]*(?:Road|Street|Avenue|Drive|Lane|Way|Circle|Crescent|Gardens|Park|Square|Boulevard|Highway|Expressway)[^\n]*)',
-            r'([A-Z][^\n]*(?:Rd|St|Ave|Dr|Ln|Cir|Cres|Gdns|Pk|Sq|Blvd|Hwy|Expy)[^\n]*)',
-        ]
+            continue
         
-        for pattern in location_patterns:
-            match = re.search(pattern, text, re.IGNORECASE | re.MULTILINE)
-            if match:
-                address = match.group(1).strip()
-                if len(address) > 3:  # Ensure it's not just a short word
-                    return self.normalize_address(address)
+        # Check for accident-related keywords
+        accident_keywords = ['accident', 'crash', 'collision', 'jam', 'traffic']
+        if not any(keyword in text.lower() for keyword in accident_keywords):
+            continue
         
-        # Fallback: try to extract coordinates and use them as address
-        lat, lon = self.extract_coordinates(text)
-        if lat and lon:
-            return self.normalize_address(f"coordinates_{lat:.4f}_{lon:.4f}")
-            
-        # Last resort: use first meaningful part of text
-        lines = [line.strip() for line in text.split('\n') if line.strip()]
-        if lines:
-            first_line = lines[0]
-            if len(first_line) > 10:
-                return self.normalize_address(first_line[:100])  # Limit length
-                
-        return self.normalize_address(text[:50])  # Very last resort
+        # Create a unique ID for this telegram message
+        message_id = f"telegram_{chat.get('id')}_{channel_post.get('message_id')}"
+        if message_id in telegram_processed:
+            continue
+        
+        # Extract location
+        location = extract_location_from_message(text)
+        if not location:
+            continue
+        
+        # Check for cross-source duplicates with Waze accidents
+        is_duplicate = False
+        for waze_id in waze_processed:
+            if addresses_similar(location, waze_id):
+                log_message(f"Skipping Telegram accident - duplicate with Waze: {location}")
+                is_duplicate = True
+                break
+        
+        if is_duplicate:
+            telegram_processed.add(message_id)
+            continue
+        
+        # Format and send message
+        timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        formatted_message = format_sgaccident_message(text, location, timestamp)
+        
+        if send_telegram_message(formatted_message):
+            telegram_processed.add(message_id)
+            new_accidents += 1
+            log_message(f"New @sgaccident report: {location}")
+            time.sleep(1)  # Rate limiting
     
-    def format_sgaccident_message(self, original_message: str, lat: float = None, lon: float = None) -> str:
-        """
-        Format message from sgaccident channel with Waze links
-        
-        Args:
-            original_message: Original message text
-            lat: Latitude coordinate
-            lon: Longitude coordinate
-            
-        Returns:
-            Formatted message string
-        """
-        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        
-        message = f"🚨 *ACCIDENT ALERT* (via @sgaccident)\n\n"
-        message += f"📅 *Reported:* {timestamp}\n\n"
-        
-        # Add original message content
-        message += f"📝 *Details:*\n{original_message}\n\n"
-        
-        # Add map links if coordinates are available
-        if lat and lon:
-            google_maps_link = f"https://www.google.com/maps?q={lat},{lon}"
-            waze_link = f"https://www.waze.com/ul?ll={lat},{lon}&navigate=yes"
-            message += f"🗺️ [View on Google Maps]({google_maps_link})\n"
-            message += f"🚗 [Open in Waze]({waze_link})\n"
-        
-        message += f"\n📡 *Source:* @sgaccident"
-        
-        return message
+    # Save the new offset and processed IDs
+    save_telegram_offset(latest_offset)
+    save_processed_accidents(waze_processed, telegram_processed)
     
-    def process_sgaccident_updates(self) -> int:
-        """
-        Process updates from sgaccident channel and repost to own channel
-        
-        Returns:
-            Number of new messages processed
-        """
-        updates = self.get_channel_updates()
-        processed_count = 0
-        
-        for update in updates:
-            # Look for channel posts
-            if 'channel_post' in update:
-                post = update['channel_post']
-                
-                # Check if it's from sgaccident channel (ID: -1001486947378 or username: sgaccident)
-                chat = post.get('chat', {})
-                if chat.get('username') == 'sgaccident' or str(chat.get('id')) == '-1001486947378':
-                    message_id = f"sgaccident_{post.get('message_id')}"
-                    
-                    # Skip if already processed
-                    if message_id in self.processed_messages:
-                        continue
-                    
-                    message_text = post.get('text', '')
-                    if message_text:
-                        # Extract and normalize address for cross-source duplicate checking
-                        address = self.extract_address_from_text(message_text)
-                        normalized_address = self.normalize_address(address)
-                        
-                        # Skip if same address already posted (from Waze or previous @sgaccident)
-                        if address and (address in self.posted_addresses or normalized_address in self.posted_addresses):
-                            print(f"⚠️ Skipping @sgaccident post (already reported from Waze): {address}")
-                            continue
-                        
-                        # Check for similar addresses
-                        is_duplicate = False
-                        if address:
-                            for existing_addr in self.posted_addresses:
-                                if self.addresses_similar(normalized_address, existing_addr):
-                                    print(f"⚠️ Skipping similar @sgaccident post: {address} (similar to {existing_addr})")
-                                    is_duplicate = True
-                                    break
-                        
-                        if is_duplicate:
-                            continue
-                        
-                        # Extract coordinates
-                        lat, lon = self.extract_coordinates(message_text)
-                        
-                        # Format and send message
-                        formatted_message = self.format_sgaccident_message(message_text, lat, lon)
-                        
-                        if self.send_telegram_message(formatted_message):
-                            print(f"✓ Posted from @sgaccident: {message_text[:50]}...")
-                            print(f"  Address: {address}")
-                            print(f"  Normalized: {normalized_address}")
-                            print(f"  Source: @sgaccident channel")
-                            self.processed_messages.add(message_id)
-                            if address:
-                                self.posted_addresses.add(address)
-                                if normalized_address != address:
-                                    self.posted_addresses.add(normalized_address)
-                            processed_count += 1
-                        else:
-                            print(f"✗ Failed to repost from @sgaccident")
-            
-            # Also check for forwarded messages that might be from sgaccident
-            elif 'message' in update:
-                message = update['message']
-                forward_from_chat = message.get('forward_from_chat', {})
-                
-                if forward_from_chat.get('username') == 'sgaccident' or str(forward_from_chat.get('id')) == '-1001486947378':
-                    message_id = f"forward_sgaccident_{message.get('message_id')}"
-                    
-                    if message_id not in self.processed_messages:
-                        message_text = message.get('text', '')
-                        if message_text:
-                            # Extract and normalize address for cross-source duplicate checking
-                            address = self.extract_address_from_text(message_text)
-                            normalized_address = self.normalize_address(address)
-                            
-                            # Skip if same address already posted (from Waze or previous posts)
-                            if address and (address in self.posted_addresses or normalized_address in self.posted_addresses):
-                                print(f"⚠️ Skipping forwarded @sgaccident post (already reported from Waze): {address}")
-                                continue
-                            
-                            # Check for similar addresses
-                            is_duplicate = False
-                            if address:
-                                for existing_addr in self.posted_addresses:
-                                    if self.addresses_similar(normalized_address, existing_addr):
-                                        print(f"⚠️ Skipping similar forwarded @sgaccident: {address} (similar to {existing_addr})")
-                                        is_duplicate = True
-                                        break
-                            
-                            if is_duplicate:
-                                continue
-                                
-                            lat, lon = self.extract_coordinates(message_text)
-                            formatted_message = self.format_sgaccident_message(message_text, lat, lon)
-                            
-                            if self.send_telegram_message(formatted_message):
-                                print(f"✓ Posted forwarded from @sgaccident: {message_text[:50]}...")
-                                print(f"  Address: {address}")  
-                                print(f"  Normalized: {normalized_address}")
-                                print(f"  Source: @sgaccident (forwarded)")
-                                self.processed_messages.add(message_id)
-                                if address:
-                                    self.posted_addresses.add(address)
-                                    if normalized_address != address:
-                                        self.posted_addresses.add(normalized_address)
-                                processed_count += 1
-        
-        # Clean up old processed messages and addresses (keep only last 1000)
-        if len(self.processed_messages) > 1000:
-            self.processed_messages = set(list(self.processed_messages)[-500:])
-            
-        if len(self.posted_addresses) > 2000:  # Keep more addresses for better duplicate detection
-            self.posted_addresses = set(list(self.posted_addresses)[-1000:])
-            
-        return processed_count
+    if new_accidents > 0:
+        log_message(f"Processed {new_accidents} new @sgaccident reports")
+
+def main():
+    """Main monitoring loop"""
+    log_message("Starting enhanced accident monitoring with dual sources...")
+    log_message(f"Monitoring Waze API and @sgaccident channel")
+    log_message(f"Target channel: {CHAT_ID}")
     
-    def get_accident_id(self, accident: Dict) -> str:
-        """
-        Generate unique ID for an accident
-        
-        Args:
-            accident: Accident dictionary
+    while True:
+        try:
+            # Process both sources
+            process_waze_accidents()
+            process_sgaccident_updates()
             
-        Returns:
-            Unique ID string
-        """
-        uuid = accident.get('uuid', '')
-        if uuid:
-            return uuid
-        
-        # Fallback: use location and time
-        location = accident.get('location', {})
-        lat = location.get('y', 0)
-        lon = location.get('x', 0)
-        pub_millis = accident.get('pubMillis', 0)
-        return f"{lat}_{lon}_{pub_millis}"
-    
-    def monitor_and_post(self, check_interval: int = 300):
-        """
-        Continuously monitor Waze for accidents and post to Telegram
-        Also monitors @sgaccident channel for updates
-        
-        Args:
-            check_interval: Seconds between checks (default: 300 = 5 minutes)
-        """
-        print("Starting Enhanced Accident Monitor (Secondary Instance)...")
-        print(f"Checking every {check_interval} seconds")
-        print(f"Posting to Telegram channel: {self.telegram_channel_id}")
-        print("Also monitoring @sgaccident channel for updates")
-        
-        while True:
-            try:
-                # 1. Process updates from @sgaccident channel
-                sg_processed = self.process_sgaccident_updates()
-                if sg_processed > 0:
-                    print(f"Processed {sg_processed} updates from @sgaccident")
-                
-                # 2. Fetch Waze alerts
-                alerts = self.get_waze_alerts()
-                print(f"Fetched {len(alerts)} total alerts")
+            # Clean up old processed accidents (keep last 1000)
+            waze_processed, telegram_processed = load_processed_accidents()
+            if len(waze_processed) > 1000:
+                waze_processed = set(list(waze_processed)[-500:])
+            if len(telegram_processed) > 1000:
+                telegram_processed = set(list(telegram_processed)[-500:])
+            save_processed_accidents(waze_processed, telegram_processed)
+            
+            log_message("Monitoring cycle complete, sleeping for 30 seconds...")
+            time.sleep(30)
+            
+        except KeyboardInterrupt:
+            log_message("Monitoring stopped by user")
+            break
+        except Exception as e:
+            log_message(f"Error in main loop: {e}")
+            time.sleep(60)  # Wait longer on error
+
+if __name__ == "__main__":
+    main()
                 
                 # Filter for accidents
                 accidents = self.filter_accidents(alerts)
@@ -629,9 +412,12 @@ class WazeAccidentMonitor:
                     # Second check: address already posted  
                     address = self.extract_address_from_waze(accident)
                     normalized_address = self.normalize_address(address)
+                    print(f"🔍 Checking Waze accident: {address} (normalized: {normalized_address[:50]}...)")
                     
                     if address and (address in self.posted_addresses or normalized_address in self.posted_addresses):
-                        print(f"⚠️ Skipping duplicate Waze accident at: {address}")
+                        # Show which source reported it first
+                        source = self.address_sources.get(normalized_address, "unknown source")
+                        print(f"⚠️ Skipping duplicate Waze accident at: {address} (already reported from {source})")
                         continue
                     
                     # Third check: similar address exists
@@ -660,8 +446,10 @@ class WazeAccidentMonitor:
                         self.posted_accidents.add(accident_id)
                         if address:
                             self.posted_addresses.add(address)
+                            self.address_sources[address] = "Waze API"
                             if normalized_address != address:
                                 self.posted_addresses.add(normalized_address)
+                                self.address_sources[normalized_address] = "Waze API"
                         waze_posted += 1
                     else:
                         print(f"✗ Failed to post Waze accident: {accident.get('street', 'Unknown')}")
@@ -707,12 +495,4 @@ def main():
 
 
 if __name__ == "__main__":
-    import sys
-    
-    # Check command line arguments
-    if len(sys.argv) > 1 and sys.argv[1] == "retrieve-chats":
-        # Retrieve chat sessions
-        retrieve_chat_sessions()
-    else:
-        # Run normal monitoring
-        main()
+    main()
