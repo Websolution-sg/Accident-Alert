@@ -9,6 +9,11 @@ from datetime import datetime
 from typing import List, Dict, Set
 import os
 import re
+import sys
+
+# Ensure unbuffered output for systemd logging
+sys.stdout.reconfigure(line_buffering=True)
+sys.stderr.reconfigure(line_buffering=True)
 
 class WazeAccidentMonitor:
     def __init__(self, telegram_bot_token: str, telegram_channel_id: str):
@@ -250,6 +255,45 @@ class WazeAccidentMonitor:
                     
         return None, None
     
+    def addresses_similar(self, addr1: str, addr2: str) -> bool:
+        """
+        Check if two addresses are similar enough to be considered duplicates
+        
+        Args:
+            addr1: First address
+            addr2: Second address
+            
+        Returns:
+            True if addresses are similar
+        """
+        if not addr1 or not addr2:
+            return False
+            
+        # Normalize both addresses
+        norm1 = self.normalize_address(addr1).lower()
+        norm2 = self.normalize_address(addr2).lower()
+        
+        # Exact match
+        if norm1 == norm2:
+            return True
+            
+        # Check if one contains the other (for different detail levels)
+        if norm1 in norm2 or norm2 in norm1:
+            return True
+            
+        # Split into words and check overlap
+        words1 = set(norm1.split())
+        words2 = set(norm2.split())
+        
+        # If more than 70% of words overlap, consider similar
+        if words1 and words2:
+            overlap = len(words1.intersection(words2))
+            min_words = min(len(words1), len(words2))
+            if overlap / min_words > 0.7:
+                return True
+                
+        return False
+        
     def normalize_address(self, address: str) -> str:
         """
         Normalize address string for duplicate detection
@@ -415,9 +459,9 @@ class WazeAccidentMonitor:
             if 'channel_post' in update:
                 post = update['channel_post']
                 
-                # Check if it's from sgaccident channel (username: sgaccident)
+                # Check if it's from sgaccident channel (ID: -1001486947378 or username: sgaccident)
                 chat = post.get('chat', {})
-                if chat.get('username') == 'sgaccident':
+                if chat.get('username') == 'sgaccident' or str(chat.get('id')) == '-1001486947378':
                     message_id = f"sgaccident_{post.get('message_id')}"
                     
                     # Skip if already processed
@@ -426,12 +470,25 @@ class WazeAccidentMonitor:
                     
                     message_text = post.get('text', '')
                     if message_text:
-                        # Extract and normalize address
+                        # Extract and normalize address for cross-source duplicate checking
                         address = self.extract_address_from_text(message_text)
+                        normalized_address = self.normalize_address(address)
                         
-                        # Skip if same address already posted
-                        if address and address in self.posted_addresses:
-                            print(f"⚠️ Skipping duplicate address from @sgaccident: {address}")
+                        # Skip if same address already posted (from Waze or previous @sgaccident)
+                        if address and (address in self.posted_addresses or normalized_address in self.posted_addresses):
+                            print(f"⚠️ Skipping @sgaccident post (already reported from Waze): {address}")
+                            continue
+                        
+                        # Check for similar addresses
+                        is_duplicate = False
+                        if address:
+                            for existing_addr in self.posted_addresses:
+                                if self.addresses_similar(normalized_address, existing_addr):
+                                    print(f"⚠️ Skipping similar @sgaccident post: {address} (similar to {existing_addr})")
+                                    is_duplicate = True
+                                    break
+                        
+                        if is_duplicate:
                             continue
                         
                         # Extract coordinates
@@ -441,10 +498,15 @@ class WazeAccidentMonitor:
                         formatted_message = self.format_sgaccident_message(message_text, lat, lon)
                         
                         if self.send_telegram_message(formatted_message):
-                            print(f"✓ Reposted from @sgaccident: {message_text[:50]}...")
+                            print(f"✓ Posted from @sgaccident: {message_text[:50]}...")
+                            print(f"  Address: {address}")
+                            print(f"  Normalized: {normalized_address}")
+                            print(f"  Source: @sgaccident channel")
                             self.processed_messages.add(message_id)
                             if address:
                                 self.posted_addresses.add(address)
+                                if normalized_address != address:
+                                    self.posted_addresses.add(normalized_address)
                             processed_count += 1
                         else:
                             print(f"✗ Failed to repost from @sgaccident")
@@ -454,28 +516,46 @@ class WazeAccidentMonitor:
                 message = update['message']
                 forward_from_chat = message.get('forward_from_chat', {})
                 
-                if forward_from_chat.get('username') == 'sgaccident':
+                if forward_from_chat.get('username') == 'sgaccident' or str(forward_from_chat.get('id')) == '-1001486947378':
                     message_id = f"forward_sgaccident_{message.get('message_id')}"
                     
                     if message_id not in self.processed_messages:
                         message_text = message.get('text', '')
                         if message_text:
-                            # Extract and normalize address
+                            # Extract and normalize address for cross-source duplicate checking
                             address = self.extract_address_from_text(message_text)
+                            normalized_address = self.normalize_address(address)
                             
-                            # Skip if same address already posted
-                            if address and address in self.posted_addresses:
-                                print(f"⚠️ Skipping duplicate address from forwarded @sgaccident: {address}")
+                            # Skip if same address already posted (from Waze or previous posts)
+                            if address and (address in self.posted_addresses or normalized_address in self.posted_addresses):
+                                print(f"⚠️ Skipping forwarded @sgaccident post (already reported from Waze): {address}")
+                                continue
+                            
+                            # Check for similar addresses
+                            is_duplicate = False
+                            if address:
+                                for existing_addr in self.posted_addresses:
+                                    if self.addresses_similar(normalized_address, existing_addr):
+                                        print(f"⚠️ Skipping similar forwarded @sgaccident: {address} (similar to {existing_addr})")
+                                        is_duplicate = True
+                                        break
+                            
+                            if is_duplicate:
                                 continue
                                 
                             lat, lon = self.extract_coordinates(message_text)
                             formatted_message = self.format_sgaccident_message(message_text, lat, lon)
                             
                             if self.send_telegram_message(formatted_message):
-                                print(f"✓ Reposted forwarded from @sgaccident: {message_text[:50]}...")
+                                print(f"✓ Posted forwarded from @sgaccident: {message_text[:50]}...")
+                                print(f"  Address: {address}")  
+                                print(f"  Normalized: {normalized_address}")
+                                print(f"  Source: @sgaccident (forwarded)")
                                 self.processed_messages.add(message_id)
                                 if address:
                                     self.posted_addresses.add(address)
+                                    if normalized_address != address:
+                                        self.posted_addresses.add(normalized_address)
                                 processed_count += 1
         
         # Clean up old processed messages and addresses (keep only last 1000)
@@ -541,23 +621,50 @@ class WazeAccidentMonitor:
                 for accident in accidents:
                     accident_id = self.get_accident_id(accident)
                     
-                    if accident_id not in self.posted_accidents:
-                        # Check for duplicate address
-                        address = self.extract_address_from_waze(accident)
+                    # First check: accident ID already posted
+                    if accident_id in self.posted_accidents:
+                        print(f"⚠️ Skipping duplicate accident ID: {accident_id}")
+                        continue
+                    
+                    # Second check: address already posted  
+                    address = self.extract_address_from_waze(accident)
+                    normalized_address = self.normalize_address(address)
+                    
+                    if address and (address in self.posted_addresses or normalized_address in self.posted_addresses):
+                        print(f"⚠️ Skipping duplicate Waze accident at: {address}")
+                        continue
+                    
+                    # Third check: similar address exists
+                    is_duplicate = False
+                    for existing_addr in self.posted_addresses:
+                        if self.addresses_similar(normalized_address, existing_addr):
+                            print(f"⚠️ Skipping similar Waze accident: {address} (similar to {existing_addr})")
+                            is_duplicate = True
+                            break
+                    
+                    if is_duplicate:
+                        continue
+                    
+                    # All checks passed - post the accident
+                    print(f"🔍 Processing accident: {accident.get('street', 'Unknown')} (ID: {accident_id[:8]}...)")
+                    message = self.format_accident_message(accident)
+                    if self.send_telegram_message(message):
+                        print(f"✓ Posted Waze accident: {accident.get('street', 'Unknown')}")
+                        print(f"  Address: {address}")
+                        print(f"  Normalized: {normalized_address}")
+                        print(f"  Accident ID: {accident_id}")
+                        print(f"  Total addresses tracked: {len(self.posted_addresses)}")
+                        print(f"  Total accident IDs tracked: {len(self.posted_accidents)}")
                         
-                        if address and address in self.posted_addresses:
-                            print(f"⚠️ Skipping duplicate Waze accident at: {address}")
-                            continue
-                        
-                        message = self.format_accident_message(accident)
-                        if self.send_telegram_message(message):
-                            print(f"✓ Posted Waze accident: {accident.get('street', 'Unknown')}")
-                            self.posted_accidents.add(accident_id)
-                            if address:
-                                self.posted_addresses.add(address)
-                            waze_posted += 1
-                        else:
-                            print(f"✗ Failed to post Waze accident: {accident.get('street', 'Unknown')}")
+                        # Add to tracking sets immediately to prevent race conditions
+                        self.posted_accidents.add(accident_id)
+                        if address:
+                            self.posted_addresses.add(address)
+                            if normalized_address != address:
+                                self.posted_addresses.add(normalized_address)
+                        waze_posted += 1
+                    else:
+                        print(f"✗ Failed to post Waze accident: {accident.get('street', 'Unknown')}")
                 
                 # Clean up old accident IDs and addresses (keep only last 1000)
                 if len(self.posted_accidents) > 1000:

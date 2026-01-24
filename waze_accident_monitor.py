@@ -8,6 +8,11 @@ from datetime import datetime
 from typing import List, Dict, Set
 import os
 import re
+import sys
+
+# Ensure unbuffered output for systemd logging
+sys.stdout.reconfigure(line_buffering=True)
+sys.stderr.reconfigure(line_buffering=True)
 
 class WazeAccidentMonitor:
     def __init__(self, telegram_bot_token: str, telegram_channel_id: str):
@@ -249,6 +254,45 @@ class WazeAccidentMonitor:
                     
         return None, None
     
+    def addresses_similar(self, addr1: str, addr2: str) -> bool:
+        """
+        Check if two addresses are similar enough to be considered duplicates
+        
+        Args:
+            addr1: First address
+            addr2: Second address
+            
+        Returns:
+            True if addresses are similar
+        """
+        if not addr1 or not addr2:
+            return False
+            
+        # Normalize both addresses
+        norm1 = self.normalize_address(addr1).lower()
+        norm2 = self.normalize_address(addr2).lower()
+        
+        # Exact match
+        if norm1 == norm2:
+            return True
+            
+        # Check if one contains the other (for different detail levels)
+        if norm1 in norm2 or norm2 in norm1:
+            return True
+            
+        # Split into words and check overlap
+        words1 = set(norm1.split())
+        words2 = set(norm2.split())
+        
+        # If more than 70% of words overlap, consider similar
+        if words1 and words2:
+            overlap = len(words1.intersection(words2))
+            min_words = min(len(words1), len(words2))
+            if overlap / min_words > 0.7:
+                return True
+                
+        return False
+        
     def normalize_address(self, address: str) -> str:
         """
         Normalize address string for duplicate detection
@@ -325,8 +369,27 @@ class WazeAccidentMonitor:
                 full_address = "unknown_location"
                 
         return self.normalize_address(full_address)
+        def load_shared_addresses(self):
+        """Load shared addresses from file to prevent cross-monitor duplicates"""
+        try:
+            if os.path.exists(self.shared_addresses_file):
+                with open(self.shared_addresses_file, 'r') as f:
+                    shared_addresses = f.read().strip().split('\n')
+                    for addr in shared_addresses:
+                        if addr.strip():
+                            self.posted_addresses.add(addr.strip())
+                print(f"Loaded {len(shared_addresses)} shared addresses for duplicate detection")
+        except Exception as e:
+            print(f"Warning: Could not load shared addresses: {e}")
     
-    def extract_address_from_text(self, text: str) -> str:
+    def save_shared_address(self, address: str):
+        """Save address to shared file for cross-monitor duplicate detection"""
+        try:
+            with open(self.shared_addresses_file, 'a') as f:
+                f.write(f"{address}\n")
+        except Exception as e:
+            print(f"Warning: Could not save shared address: {e}")
+        def extract_address_from_text(self, text: str) -> str:
         """
         Extract and normalize address from message text
         
@@ -414,9 +477,9 @@ class WazeAccidentMonitor:
             if 'channel_post' in update:
                 post = update['channel_post']
                 
-                # Check if it's from sgaccident channel (username: sgaccident)
+                # Check if it's from sgaccident channel (ID: -1001486947378 or username: sgaccident)
                 chat = post.get('chat', {})
-                if chat.get('username') == 'sgaccident':
+                if chat.get('username') == 'sgaccident' or str(chat.get('id')) == '-1001486947378':
                     message_id = f"sgaccident_{post.get('message_id')}"
                     
                     # Skip if already processed
@@ -453,7 +516,7 @@ class WazeAccidentMonitor:
                 message = update['message']
                 forward_from_chat = message.get('forward_from_chat', {})
                 
-                if forward_from_chat.get('username') == 'sgaccident':
+                if forward_from_chat.get('username') == 'sgaccident' or str(forward_from_chat.get('id')) == '-1001486947378':
                     message_id = f"forward_sgaccident_{message.get('message_id')}"
                     
                     if message_id not in self.processed_messages:
