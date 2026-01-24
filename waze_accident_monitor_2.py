@@ -73,8 +73,9 @@ class WazeAccidentMonitor:
             alert for alert in alerts 
             if (alert.get('type', '').upper() in accident_types or 
                 alert.get('subtype', '').upper() in accident_types) and
-               (alert.get('country', '').upper() == 'SG' or 
-                'SINGAPORE' in alert.get('city', '').upper())
+               (alert.get('country', '').upper() in ['SG', 'SN'] or 
+                'SINGAPORE' in alert.get('city', '').upper() or
+                alert.get('city', '') in ['Outram', 'Kallang', 'Geylang', 'Bukit Timah', 'Sentosa', 'Tampines', 'Woodlands', 'Jurong', 'Bedok', 'Punggol', 'Sengkang', 'Yishun', 'Ang Mo Kio', 'Bishan', 'Toa Payoh', 'Queenstown', 'Clementi', 'Pasir Ris', 'Sembawang', 'Marine Parade'])
         ]
         return accidents
     
