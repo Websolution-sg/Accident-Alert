@@ -22,6 +22,7 @@ class WazeAccidentMonitor:
         self.telegram_channel_id = telegram_channel_id
         self.telegram_api_url = f"https://api.telegram.org/bot{telegram_bot_token}"
         self.posted_accidents: Set[str] = set()
+        self.posted_addresses: Set[str] = set()  # Track posted addresses to prevent duplicates
         self.processed_messages: Set[str] = set()  # Track processed messages from sgaccident
         self.last_update_id = None  # Track last processed update ID
         
@@ -248,6 +249,125 @@ class WazeAccidentMonitor:
                     
         return None, None
     
+    def normalize_address(self, address: str) -> str:
+        """
+        Normalize address string for duplicate detection
+        
+        Args:
+            address: Raw address string
+            
+        Returns:
+            Normalized address string
+        """
+        if not address:
+            return ""
+            
+        # Convert to lowercase and strip whitespace
+        normalized = address.lower().strip()
+        
+        # Remove common prefixes and suffixes
+        prefixes_to_remove = ['accident at', 'accident along', 'at', 'along', 'near', 'opposite', 'opp']
+        for prefix in prefixes_to_remove:
+            if normalized.startswith(prefix + ' '):
+                normalized = normalized[len(prefix):].strip()
+        
+        # Standardize road abbreviations
+        road_replacements = {
+            ' rd': ' road',
+            ' st': ' street', 
+            ' ave': ' avenue',
+            ' blvd': ' boulevard',
+            ' hwy': ' highway',
+            ' expy': ' expressway',
+            ' tpk': ' turnpike',
+            ' cres': ' crescent',
+            ' gdns': ' gardens',
+            ' pk': ' park',
+            ' sq': ' square'
+        }
+        
+        for abbrev, full in road_replacements.items():
+            normalized = normalized.replace(abbrev, full)
+            
+        # Remove extra spaces and punctuation
+        normalized = re.sub(r'[^\w\s]', ' ', normalized)
+        normalized = re.sub(r'\s+', ' ', normalized).strip()
+        
+        return normalized
+    
+    def extract_address_from_waze(self, accident: Dict) -> str:
+        """
+        Extract and normalize address from Waze accident data
+        
+        Args:
+            accident: Waze accident dictionary
+            
+        Returns:
+            Normalized address string
+        """
+        street = accident.get('street', '')
+        city = accident.get('city', '')
+        
+        if street and city:
+            full_address = f"{street}, {city}"
+        elif street:
+            full_address = street
+        elif city:
+            full_address = city
+        else:
+            # Use coordinates as fallback
+            location = accident.get('location', {})
+            lat = location.get('y', 0)
+            lon = location.get('x', 0)
+            if lat and lon:
+                full_address = f"coordinates_{lat:.4f}_{lon:.4f}"
+            else:
+                full_address = "unknown_location"
+                
+        return self.normalize_address(full_address)
+    
+    def extract_address_from_text(self, text: str) -> str:
+        """
+        Extract and normalize address from message text
+        
+        Args:
+            text: Message text
+            
+        Returns:
+            Normalized address string
+        """
+        if not text:
+            return ""
+            
+        # Look for common Singapore location patterns
+        location_patterns = [
+            r'accident (?:at|along|near) ([^\n]+)',
+            r'(?:at|along|near) ([^,\n]+)',
+            r'([A-Z][^\n]*(?:Road|Street|Avenue|Drive|Lane|Way|Circle|Crescent|Gardens|Park|Square|Boulevard|Highway|Expressway)[^\n]*)',
+            r'([A-Z][^\n]*(?:Rd|St|Ave|Dr|Ln|Cir|Cres|Gdns|Pk|Sq|Blvd|Hwy|Expy)[^\n]*)',
+        ]
+        
+        for pattern in location_patterns:
+            match = re.search(pattern, text, re.IGNORECASE | re.MULTILINE)
+            if match:
+                address = match.group(1).strip()
+                if len(address) > 3:  # Ensure it's not just a short word
+                    return self.normalize_address(address)
+        
+        # Fallback: try to extract coordinates and use them as address
+        lat, lon = self.extract_coordinates(text)
+        if lat and lon:
+            return self.normalize_address(f"coordinates_{lat:.4f}_{lon:.4f}")
+            
+        # Last resort: use first meaningful part of text
+        lines = [line.strip() for line in text.split('\n') if line.strip()]
+        if lines:
+            first_line = lines[0]
+            if len(first_line) > 10:
+                return self.normalize_address(first_line[:100])  # Limit length
+                
+        return self.normalize_address(text[:50])  # Very last resort
+    
     def format_sgaccident_message(self, original_message: str, lat: float = None, lon: float = None) -> str:
         """
         Format message from sgaccident channel with Waze links
@@ -305,6 +425,14 @@ class WazeAccidentMonitor:
                     
                     message_text = post.get('text', '')
                     if message_text:
+                        # Extract and normalize address
+                        address = self.extract_address_from_text(message_text)
+                        
+                        # Skip if same address already posted
+                        if address and address in self.posted_addresses:
+                            print(f"⚠️ Skipping duplicate address from @sgaccident: {address}")
+                            continue
+                        
                         # Extract coordinates
                         lat, lon = self.extract_coordinates(message_text)
                         
@@ -314,6 +442,8 @@ class WazeAccidentMonitor:
                         if self.send_telegram_message(formatted_message):
                             print(f"✓ Reposted from @sgaccident: {message_text[:50]}...")
                             self.processed_messages.add(message_id)
+                            if address:
+                                self.posted_addresses.add(address)
                             processed_count += 1
                         else:
                             print(f"✗ Failed to repost from @sgaccident")
@@ -329,17 +459,30 @@ class WazeAccidentMonitor:
                     if message_id not in self.processed_messages:
                         message_text = message.get('text', '')
                         if message_text:
+                            # Extract and normalize address
+                            address = self.extract_address_from_text(message_text)
+                            
+                            # Skip if same address already posted
+                            if address and address in self.posted_addresses:
+                                print(f"⚠️ Skipping duplicate address from forwarded @sgaccident: {address}")
+                                continue
+                                
                             lat, lon = self.extract_coordinates(message_text)
                             formatted_message = self.format_sgaccident_message(message_text, lat, lon)
                             
                             if self.send_telegram_message(formatted_message):
                                 print(f"✓ Reposted forwarded from @sgaccident: {message_text[:50]}...")
                                 self.processed_messages.add(message_id)
+                                if address:
+                                    self.posted_addresses.add(address)
                                 processed_count += 1
         
-        # Clean up old processed messages (keep only last 1000)
+        # Clean up old processed messages and addresses (keep only last 1000)
         if len(self.processed_messages) > 1000:
             self.processed_messages = set(list(self.processed_messages)[-500:])
+            
+        if len(self.posted_addresses) > 2000:  # Keep more addresses for better duplicate detection
+            self.posted_addresses = set(list(self.posted_addresses)[-1000:])
             
         return processed_count
     
@@ -398,17 +541,29 @@ class WazeAccidentMonitor:
                     accident_id = self.get_accident_id(accident)
                     
                     if accident_id not in self.posted_accidents:
+                        # Check for duplicate address
+                        address = self.extract_address_from_waze(accident)
+                        
+                        if address and address in self.posted_addresses:
+                            print(f"⚠️ Skipping duplicate Waze accident at: {address}")
+                            continue
+                        
                         message = self.format_accident_message(accident)
                         if self.send_telegram_message(message):
                             print(f"✓ Posted Waze accident: {accident.get('street', 'Unknown')}")
                             self.posted_accidents.add(accident_id)
+                            if address:
+                                self.posted_addresses.add(address)
                             waze_posted += 1
                         else:
                             print(f"✗ Failed to post Waze accident: {accident.get('street', 'Unknown')}")
                 
-                # Clean up old accident IDs (keep only last 1000)
+                # Clean up old accident IDs and addresses (keep only last 1000)
                 if len(self.posted_accidents) > 1000:
                     self.posted_accidents = set(list(self.posted_accidents)[-500:])
+                
+                if len(self.posted_addresses) > 1000:
+                    self.posted_addresses = set(list(self.posted_addresses)[-500:])
                 
                 # Summary
                 total_posted = sg_processed + waze_posted
