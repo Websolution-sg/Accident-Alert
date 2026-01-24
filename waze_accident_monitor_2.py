@@ -60,19 +60,21 @@ class WazeAccidentMonitor:
     
     def filter_accidents(self, alerts: List[Dict]) -> List[Dict]:
         """
-        Filter alerts to get only accidents
+        Filter alerts to get only accidents in Singapore
         
         Args:
             alerts: List of all alerts
             
         Returns:
-            List of accident alerts
+            List of accident alerts in Singapore only
         """
         accident_types = ['ACCIDENT', 'ACCIDENT_MINOR', 'ACCIDENT_MAJOR']
         accidents = [
             alert for alert in alerts 
-            if alert.get('type', '').upper() in accident_types or 
-            alert.get('subtype', '').upper() in accident_types
+            if (alert.get('type', '').upper() in accident_types or 
+                alert.get('subtype', '').upper() in accident_types) and
+               (alert.get('country', '').upper() == 'SG' or 
+                'SINGAPORE' in alert.get('city', '').upper())
         ]
         return accidents
     
