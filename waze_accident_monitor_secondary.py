@@ -190,45 +190,98 @@ def get_telegram_updates(offset=0):
         return None
 
 def extract_location_from_message(text):
-    """Extract location information from @sgaccident message"""
+    """Extract location information from @sgaccident message preserving original format"""
     if not text:
         return None
     
-    # Look for location patterns
+    # Split into lines and find the most likely location line
+    lines = text.split('\n')
+    
+    # Look for lines that typically contain location in @sgaccident format
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+            
+        # Skip common non-location lines
+        skip_patterns = [
+            r'^(update|breaking|alert|attention)',
+            r'^(time|date|reported)',
+            r'^(source|via|from)',
+            r'^\d{1,2}[:/]\d{1,2}',  # time stamps
+            r'^@\w+',  # channel mentions
+        ]
+        
+        should_skip = False
+        for pattern in skip_patterns:
+            if re.match(pattern, line, re.IGNORECASE):
+                should_skip = True
+                break
+                
+        if should_skip:
+            continue
+            
+        # Look for location indicators
+        location_indicators = [
+            'accident', 'crash', 'collision', 'jam', 'traffic',
+            'road', 'street', 'avenue', 'drive', 'boulevard', 'highway',
+            'expressway', 'at', 'along', 'near', 'towards'
+        ]
+        
+        # Check if line contains location indicators
+        has_location_indicator = any(indicator in line.lower() for indicator in location_indicators)
+        
+        # If line has good length and location indicators, use it
+        if 10 <= len(line) <= 150 and has_location_indicator:
+            return line
+    
+    # Fallback: look for location patterns in the full text
     location_patterns = [
-        r'(?:at|near|along)\s+([^\.!?\n]+?)(?:\.|!|\?|$|\n)',
+        r'(?:accident|crash|collision)\s+(?:at|along|near)\s+([^\.!?\n]{10,100})',
         r'([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\s+(?:Road|Street|Avenue|Drive|Boulevard|Highway|Expressway|Way|Lane|Place|Court|Circle))',
-        r'(\w+\s+\w+(?:\s+\w+)*)\s*(?:accident|crash|collision)',
+        r'(?:at|along|near)\s+([^\.!?\n]{10,100})',
     ]
     
     for pattern in location_patterns:
         matches = re.findall(pattern, text, re.IGNORECASE)
         if matches:
             location = matches[0].strip()
-            if len(location) > 3:  # Filter out very short matches
+            if len(location) > 5:  # Filter out very short matches
                 return location
     
-    # If no specific location pattern, try to extract from the first sentence
-    sentences = text.split('.')
-    if sentences:
-        first_sentence = sentences[0].strip()
-        # Remove common prefixes
-        prefixes = ['accident', 'crash', 'collision', 'reported', 'alert']
-        for prefix in prefixes:
-            first_sentence = re.sub(f'^{prefix}\\s*', '', first_sentence, flags=re.IGNORECASE)
-        
-        if len(first_sentence) > 5 and len(first_sentence) < 100:
-            return first_sentence
+    # Last resort: use first meaningful line
+    for line in lines:
+        line = line.strip()
+        if 10 <= len(line) <= 100:
+            return line
     
     return None
 
 def format_sgaccident_message(original_text, location, timestamp):
-    """Format @sgaccident message to match Waze format"""
-    # Create a Waze-style message
+    """Format @sgaccident message using original location header format"""
+    # Use the original text format but add our enhancements
+    # Keep the original location format from @sgaccident channel
     waze_message = f"🚨 <b>Accident Alert</b>\n\n"
-    waze_message += f"📍 <b>Location:</b> {location}\n"
-    waze_message += f"⏰ <b>Reported:</b> {timestamp}\n"
-    waze_message += f"📱 <b>Source:</b> Community Report\n\n"
+    
+    # Use original location format from @sgaccident channel if available
+    if location and location in original_text:
+        # Find the location context in original text to preserve formatting
+        lines = original_text.split('\n')
+        location_line = None
+        for line in lines:
+            if location.lower() in line.lower():
+                location_line = line.strip()
+                break
+        
+        if location_line:
+            waze_message += f"{location_line}\n"
+        else:
+            waze_message += f"{location}\n"
+    else:
+        waze_message += f"{location}\n"
+    
+    waze_message += f"\n⏰ <b>Reported:</b> {timestamp}\n"
+    waze_message += f"📱 <b>Source:</b> @sgaccident\n\n"
     waze_message += f"ℹ️ <i>Please drive safely and consider alternative routes</i>"
     
     return waze_message
@@ -391,108 +444,6 @@ def main():
         except Exception as e:
             log_message(f"Error in main loop: {e}")
             time.sleep(60)  # Wait longer on error
-
-if __name__ == "__main__":
-    main()
-                
-                # Filter for accidents
-                accidents = self.filter_accidents(alerts)
-                print(f"Found {len(accidents)} accidents")
-                
-                # Post new accidents
-                waze_posted = 0
-                for accident in accidents:
-                    accident_id = self.get_accident_id(accident)
-                    
-                    # First check: accident ID already posted
-                    if accident_id in self.posted_accidents:
-                        print(f"⚠️ Skipping duplicate accident ID: {accident_id}")
-                        continue
-                    
-                    # Second check: address already posted  
-                    address = self.extract_address_from_waze(accident)
-                    normalized_address = self.normalize_address(address)
-                    print(f"🔍 Checking Waze accident: {address} (normalized: {normalized_address[:50]}...)")
-                    
-                    if address and (address in self.posted_addresses or normalized_address in self.posted_addresses):
-                        # Show which source reported it first
-                        source = self.address_sources.get(normalized_address, "unknown source")
-                        print(f"⚠️ Skipping duplicate Waze accident at: {address} (already reported from {source})")
-                        continue
-                    
-                    # Third check: similar address exists
-                    is_duplicate = False
-                    for existing_addr in self.posted_addresses:
-                        if self.addresses_similar(normalized_address, existing_addr):
-                            print(f"⚠️ Skipping similar Waze accident: {address} (similar to {existing_addr})")
-                            is_duplicate = True
-                            break
-                    
-                    if is_duplicate:
-                        continue
-                    
-                    # All checks passed - post the accident
-                    print(f"🔍 Processing accident: {accident.get('street', 'Unknown')} (ID: {accident_id[:8]}...)")
-                    message = self.format_accident_message(accident)
-                    if self.send_telegram_message(message):
-                        print(f"✓ Posted Waze accident: {accident.get('street', 'Unknown')}")
-                        print(f"  Address: {address}")
-                        print(f"  Normalized: {normalized_address}")
-                        print(f"  Accident ID: {accident_id}")
-                        print(f"  Total addresses tracked: {len(self.posted_addresses)}")
-                        print(f"  Total accident IDs tracked: {len(self.posted_accidents)}")
-                        
-                        # Add to tracking sets immediately to prevent race conditions
-                        self.posted_accidents.add(accident_id)
-                        if address:
-                            self.posted_addresses.add(address)
-                            self.address_sources[address] = "Waze API"
-                            if normalized_address != address:
-                                self.posted_addresses.add(normalized_address)
-                                self.address_sources[normalized_address] = "Waze API"
-                        waze_posted += 1
-                    else:
-                        print(f"✗ Failed to post Waze accident: {accident.get('street', 'Unknown')}")
-                
-                # Clean up old accident IDs and addresses (keep only last 1000)
-                if len(self.posted_accidents) > 1000:
-                    self.posted_accidents = set(list(self.posted_accidents)[-500:])
-                
-                if len(self.posted_addresses) > 1000:
-                    self.posted_addresses = set(list(self.posted_addresses)[-500:])
-                
-                # Summary
-                total_posted = sg_processed + waze_posted
-                if total_posted > 0:
-                    print(f"Total alerts posted this cycle: {total_posted}")
-                
-                print(f"Waiting {check_interval} seconds until next check...")
-                time.sleep(check_interval)
-                
-            except KeyboardInterrupt:
-                print("\nStopping monitor...")
-                break
-            except Exception as e:
-                print(f"Error in monitor loop: {e}")
-                time.sleep(60)  # Wait 1 minute before retrying
-
-
-def main():
-    """
-    Main function to run the monitor
-    """
-    # Get credentials from environment variables or set them here
-    TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', '8500211695:AAFBFHrFII_ygxnmBjcFy0QsQqZQKfztV3U')
-    TELEGRAM_CHANNEL_ID = os.getenv('TELEGRAM_CHANNEL_ID', '-1003683261194')
-    
-    # Bot token and channel ID are already configured
-    
-    # Create monitor and start
-    monitor = WazeAccidentMonitor(TELEGRAM_BOT_TOKEN, TELEGRAM_CHANNEL_ID)
-    
-    # Check every 1 minute (60 seconds)
-    monitor.monitor_and_post(check_interval=60)
-
 
 if __name__ == "__main__":
     main()
