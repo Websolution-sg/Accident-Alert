@@ -82,7 +82,7 @@ echo 📦 Building container...
 gcloud builds submit --tag gcr.io/%PROJECT%/%SERVICE_NAME%
 
 echo 🚀 Deploying to Cloud Run...
-gcloud run deploy %SERVICE_NAME% --image gcr.io/%PROJECT%/%SERVICE_NAME% --platform managed --region %REGION% --allow-unauthenticated --set-env-vars="TELEGRAM_BOT_TOKEN=8339261439:AAG1DdDGnd_vY6QPBk9zsZFEL9obtncSXQA,TELEGRAM_CHANNEL_ID=-1003329968129" --cpu=1 --memory=512Mi --timeout=3600 --max-instances=1 --min-instances=1
+gcloud run deploy %SERVICE_NAME% --image gcr.io/%PROJECT%/%SERVICE_NAME% --platform managed --region %REGION% --allow-unauthenticated --set-env-vars="TELEGRAM_BOT_TOKEN=8306581686:AAFWGxVmhfvSXU2OCO5DsxyrEkxdBqGvgiQ,TELEGRAM_CHANNEL_ID=-1003683261194" --cpu=1 --memory=512Mi --timeout=3600 --max-instances=1 --min-instances=1
 
 if errorlevel 0 (
     echo ✅ Cloud Run deployment successful!

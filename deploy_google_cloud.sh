@@ -155,8 +155,8 @@ Restart=always
 RestartSec=10
 StandardOutput=journal
 StandardError=journal
-Environment=TELEGRAM_BOT_TOKEN=8339261439:AAG1DdDGnd_vY6QPBk9zsZFEL9obtncSXQA
-Environment=TELEGRAM_CHANNEL_ID=-1003329968129
+Environment=TELEGRAM_BOT_TOKEN=8500211695:AAFBFHrFII_ygxnmBjcFy0QsQqZQKfztV3U
+Environment=TELEGRAM_CHANNEL_ID=-1003683261194
 
 [Install]
 WantedBy=multi-user.target
@@ -395,8 +395,8 @@ show_summary() {
     echo "   Project: $PROJECT_ID"
     echo ""
     echo "📱 Monitoring Channels:"
-    echo "   Primary: -1003329968129"
-    echo "   Secondary: -1003683261194"
+    echo "   Active: -1003683261194"
+    echo "   Source: -1001486947378 (@sgaccident)"
     echo ""
     echo "🔧 Management Commands:"
     echo "   Connect: gcloud compute ssh $VM_NAME --zone=$ZONE"

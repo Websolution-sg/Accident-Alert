@@ -104,8 +104,8 @@ echo Restart=always >> startup-script.sh
 echo RestartSec=10 >> startup-script.sh
 echo StandardOutput=journal >> startup-script.sh
 echo StandardError=journal >> startup-script.sh
-echo Environment=TELEGRAM_BOT_TOKEN=8339261439:AAG1DdDGnd_vY6QPBk9zsZFEL9obtncSXQA >> startup-script.sh
-echo Environment=TELEGRAM_CHANNEL_ID=-1003329968129 >> startup-script.sh
+echo Environment=TELEGRAM_BOT_TOKEN=8500211695:AAFBFHrFII_ygxnmBjcFy0QsQqZQKfztV3U >> startup-script.sh
+echo Environment=TELEGRAM_CHANNEL_ID=-1003683261194 >> startup-script.sh
 echo. >> startup-script.sh
 echo [Install] >> startup-script.sh
 echo WantedBy=multi-user.target >> startup-script.sh
@@ -207,8 +207,8 @@ echo    Zone: %ZONE%
 echo    Project: %PROJECT_ID%
 echo.
 echo 📱 Monitoring Channels:
-echo    Primary: -1003329968129
-echo    Secondary: -1003683261194
+echo    Active: -1003683261194
+echo    Source: -1001486947378 (@sgaccident)
 echo.
 echo 🔧 Management Commands:
 echo    Connect: gcloud compute ssh %VM_NAME% --zone=%ZONE%

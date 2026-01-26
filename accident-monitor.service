@@ -1,5 +1,5 @@
 [Unit]
-Description=Accident Monitor Primary
+Description=Accident Monitor
 After=network.target
 
 [Service]

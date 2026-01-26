@@ -42,7 +42,7 @@
 ## Technical Implementation
 
 ### Bot Configuration
-- **Bot Token**: `8500211695:AAFBFHrFII_ygxnmBjcFy0QsQqZQKfztV3U`
+- **Bot Token**: `8306581686:AAFWGxVmhfvSXU2OCO5DsxyrEkxdBqGvgiQ`
 - **Target Channel**: `-1003683261194`
 - **Source Channel**: `-1001486947378` (@sgaccident)
 

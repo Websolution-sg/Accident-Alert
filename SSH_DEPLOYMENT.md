@@ -59,8 +59,8 @@ The deployment script will:
 
 ### Primary Service
 - **File:** `waze_accident_monitor.py`
-- **Bot:** `8339261439:AAG1DdDGnd_vY6QPBk9zsZFEL9obtncSXQA`
-- **Channel:** `-1003329968129`
+- **Bot:** `8500211695:AAFBFHrFII_ygxnmBjcFy0QsQqZQKfztV3U` (Active Bot)
+- **Channel:** `-1003683261194` (Active Channel)
 - **Service:** `accident-monitor-primary`
 
 ### Secondary Service

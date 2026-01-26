@@ -5,8 +5,8 @@ This setup allows you to run the Enhanced Accident Monitoring System on **two se
 ## 🎯 Channel Configuration
 
 ### Primary Channel (Original)
-- **Bot Token:** `8339261439:AAG1DdDGnd_vY6QPBk9zsZFEL9obtncSXQA`
-- **Channel ID:** `-1003329968129`
+- **Bot Token:** `8500211695:AAFBFHrFII_ygxnmBjcFy0QsQqZQKfztV3U` (Primary Active Bot)
+- **Channel ID:** `-1003683261194` (Current Active Channel)
 - **File:** `waze_accident_monitor.py`
 - **Config:** `app.yaml`
 

@@ -43,8 +43,8 @@ chmod +x deploy_google_cloud.sh
 
 ### Services Created
 - **Primary Service:** accident-monitor-primary
-  - Bot: `8339261439:AAG1DdDGnd_vY6QPBk9zsZFEL9obtncSXQA`
-  - Channel: `-1003329968129`
+  - Bot: `8500211695:AAFBFHrFII_ygxnmBjcFy0QsQqZQKfztV3U` (Active Bot)
+  - Channel: `-1003683261194` (Active Channel)
   
 - **Secondary Service:** accident-monitor-secondary
   - Bot: `8500211695:AAFBFHrFII_ygxnmBjcFy0QsQqZQKfztV3U`
@@ -173,7 +173,7 @@ python3 waze_accident_monitor.py
 ping google.com
 
 # Test Telegram API access
-curl -s "https://api.telegram.org/bot8339261439:AAG1DdDGnd_vY6QPBk9zsZFEL9obtncSXQA/getMe"
+curl -s "https://api.telegram.org/bot8306581686:AAFWGxVmhfvSXU2OCO5DsxyrEkxdBqGvgiQ/getMe"
 
 # Test Waze API access
 curl -s "https://www.waze.com/live-map/api/georss?bottom=1.1&left=103.6&right=104.1&top=1.5&env=row&types=alerts"

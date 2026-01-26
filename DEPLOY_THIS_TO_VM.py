@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Singapore Accident Monitor with Working Government APIs
-Version 4.0 - Multi-source with Singapore.gov APIs
+Singapore Accident Monitor with Waze and @sgaccident
+Version 4.1 - Simplified dual-source monitoring
 """
 import requests
 import json
@@ -17,14 +17,13 @@ from typing import Dict, List, Optional, Tuple
 sys.stdout.reconfigure(line_buffering=True)
 
 # Configuration
-TELEGRAM_TOKEN = "7500211695:AAFBFHrFII_ygxnmBjcFy0QsQqZQKfztV3U"
-CHAT_ID = "-1002683261194"  # Target channel
-SG_ACCIDENT_CHANNEL = "-1001683261194"  # @sgaccident channel
+TELEGRAM_TOKEN = "8306581686:AAFWGxVmhfvSXU2OCO5DsxyrEkxdBqGvgiQ"
+CHAT_ID = "-1003683261194"  # Target channel
+SG_ACCIDENT_CHANNEL = "-1001486947378"  # @sgaccident channel
 
 # Data storage files
 PROCESSED_FILE = "processed_accidents.json"
 OFFSET_FILE = "telegram_offset.json"
-TRAFFIC_CACHE = "traffic_cache.json"
 
 # Enhanced User Agents
 USER_AGENTS = [
@@ -529,16 +528,15 @@ def process_sgaccident_updates() -> None:
         log_message(f"Error processing @sgaccident updates: {e}")
 
 def main():
-    """Main monitoring loop with Singapore government data integration"""
-    log_message("Starting SINGAPORE GOVERNMENT integrated accident monitoring...")
-    log_message(f"Data sources: SG Gov APIs + @sgaccident + Waze (if available)")
+    """Main monitoring loop with Waze and @sgaccident only"""
+    log_message("Starting simplified accident monitoring...")
+    log_message(f"Data sources: Waze API + @sgaccident channel")
     log_message(f"Target channel: {CHAT_ID}")
-    log_message(f"Government APIs: Traffic Cameras, Taxi Analysis, Police Website")
     
     while True:
         try:
-            # Process all sources
-            process_government_data()     # Singapore government + Waze attempts
+            # Process both sources
+            process_waze_data()           # Waze API only
             process_sgaccident_updates()  # @sgaccident channel
             
             # Clean up old processed incidents (keep last 1000)

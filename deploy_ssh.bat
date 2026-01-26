@@ -89,8 +89,8 @@ echo WorkingDirectory=PATH_PLACEHOLDER >> deploy_package\accident-monitor-primar
 echo ExecStart=/usr/bin/python3 PATH_PLACEHOLDER/waze_accident_monitor.py >> deploy_package\accident-monitor-primary.service
 echo Restart=always >> deploy_package\accident-monitor-primary.service
 echo RestartSec=10 >> deploy_package\accident-monitor-primary.service
-echo Environment=TELEGRAM_BOT_TOKEN=8339261439:AAG1DdDGnd_vY6QPBk9zsZFEL9obtncSXQA >> deploy_package\accident-monitor-primary.service
-echo Environment=TELEGRAM_CHANNEL_ID=-1003329968129 >> deploy_package\accident-monitor-primary.service
+echo Environment=TELEGRAM_BOT_TOKEN=8306581686:AAFWGxVmhfvSXU2OCO5DsxyrEkxdBqGvgiQ >> deploy_package\accident-monitor-primary.service
+echo Environment=TELEGRAM_CHANNEL_ID=-1003683261194 >> deploy_package\accident-monitor-primary.service
 echo. >> deploy_package\accident-monitor-primary.service
 echo [Install] >> deploy_package\accident-monitor-primary.service
 echo WantedBy=multi-user.target >> deploy_package\accident-monitor-primary.service
@@ -107,7 +107,7 @@ echo WorkingDirectory=PATH_PLACEHOLDER >> deploy_package\accident-monitor-second
 echo ExecStart=/usr/bin/python3 PATH_PLACEHOLDER/waze_accident_monitor_secondary.py >> deploy_package\accident-monitor-secondary.service
 echo Restart=always >> deploy_package\accident-monitor-secondary.service
 echo RestartSec=10 >> deploy_package\accident-monitor-secondary.service
-echo Environment=TELEGRAM_BOT_TOKEN=8500211695:AAFBFHrFII_ygxnmBjcFy0QsQqZQKfztV3U >> deploy_package\accident-monitor-secondary.service
+echo Environment=TELEGRAM_BOT_TOKEN=8306581686:AAFWGxVmhfvSXU2OCO5DsxyrEkxdBqGvgiQ >> deploy_package\accident-monitor-secondary.service
 echo Environment=TELEGRAM_CHANNEL_ID=-1003683261194 >> deploy_package\accident-monitor-secondary.service
 echo. >> deploy_package\accident-monitor-secondary.service
 echo [Install] >> deploy_package\accident-monitor-secondary.service
@@ -170,8 +170,8 @@ echo.
 echo 📊 Server Details:
 echo    • Server: %SERVER_IP%
 echo    • Path: %SERVER_PATH%
-echo    • Primary Channel: -1003329968129
-echo    • Secondary Channel: -1003683261194
+echo    • Active Channel: -1003683261194
+echo    • Source Channel: -1001486947378 (@sgaccident)
 echo.
 echo 🔧 Management Commands:
 echo    • View logs: ssh %SERVER_USER%@%SERVER_IP% "cd %SERVER_PATH% && ./logs.sh"

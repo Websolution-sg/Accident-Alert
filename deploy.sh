@@ -84,7 +84,7 @@ case $choice in
             --platform managed \
             --region $REGION \
             --allow-unauthenticated \
-            --set-env-vars="TELEGRAM_BOT_TOKEN=8339261439:AAG1DdDGnd_vY6QPBk9zsZFEL9obtncSXQA,TELEGRAM_CHANNEL_ID=-1003329968129" \
+            --set-env-vars="TELEGRAM_BOT_TOKEN=8306581686:AAFWGxVmhfvSXU2OCO5DsxyrEkxdBqGvgiQ,TELEGRAM_CHANNEL_ID=-1003683261194" \
             --cpu=1 \
             --memory=512Mi \
             --timeout=3600 \

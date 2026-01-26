@@ -1,6 +1,5 @@
 """
 Waze Accident Monitor - Extracts accident occurrences and posts to Telegram
-Secondary Instance for Channel -1003683261194 with @sgaccident monitoring
 """
 import requests
 import json
@@ -10,28 +9,51 @@ from typing import List, Dict, Set
 import os
 import re
 import sys
+import pytz
 
 # Ensure unbuffered output for systemd logging
 sys.stdout.reconfigure(line_buffering=True)
 sys.stderr.reconfigure(line_buffering=True)
 
+# Singapore timezone
+SINGAPORE_TZ = pytz.timezone('Asia/Singapore')
+
 class WazeAccidentMonitor:
-    def __init__(self, telegram_bot_token: str, telegram_channel_id: str):
+    def __init__(self, telegram_bot_token: str, telegram_channel_id: str, 
+                 coordinate_precision: int = 3, time_window_hours: int = 1, 
+                 max_stored_accidents: int = 5000, max_stored_coordinates: int = 5000):
         """
-        Initialize the Waze Accident Monitor
+        Initialize the Waze Accident Monitor - Secondary Channel Version
         
         Args:
             telegram_bot_token: Your Telegram bot token from @BotFather
             telegram_channel_id: Your Telegram channel ID (e.g., @yourchannel or -100xxxxxxxxx)
+            coordinate_precision: Decimal places for coordinate matching (3 = ~111m, 4 = ~11m)
+            time_window_hours: Hours to group accidents (1 = same hour, 24 = same day)
+            max_stored_accidents: Maximum accident IDs to keep in memory
+            max_stored_coordinates: Maximum coordinate IDs to keep in memory
         """
         self.telegram_bot_token = telegram_bot_token
         self.telegram_channel_id = telegram_channel_id
         self.telegram_api_url = f"https://api.telegram.org/bot{telegram_bot_token}"
+        
+        # Configurable duplicate detection parameters
+        self.coordinate_precision = coordinate_precision
+        self.time_window_hours = time_window_hours
+        self.max_stored_accidents = max_stored_accidents
+        self.max_stored_coordinates = max_stored_coordinates
+        
         self.posted_accidents: Set[str] = set()
-        self.posted_addresses: Set[str] = set()  # Track posted addresses to prevent duplicates
-        self.address_sources: Dict[str, str] = {}  # Track where each address came from
+        self.posted_coordinates: Set[str] = set()  # Track posted coordinates to prevent duplicates
         self.processed_messages: Set[str] = set()  # Track processed messages from sgaccident
         self.last_update_id = None  # Track last processed update ID
+        
+        # File paths for persistent storage (secondary channel specific)
+        self.accidents_file = "posted_accidents_secondary.txt"
+        self.coordinates_file = "posted_coordinates_secondary.txt"
+        
+        # Load existing data
+        self.load_posted_data()
         
         # Singapore bounding box
         self.bbox = {
@@ -118,7 +140,9 @@ class WazeAccidentMonitor:
         # Get timestamp
         pub_millis = accident.get('pubMillis', 0)
         if pub_millis:
-            report_time = datetime.fromtimestamp(pub_millis / 1000).strftime('%Y-%m-%d %H:%M:%S')
+            utc_time = datetime.fromtimestamp(pub_millis / 1000, tz=pytz.UTC)
+            singapore_time = utc_time.astimezone(SINGAPORE_TZ)
+            report_time = singapore_time.strftime('%Y-%m-%d %H:%M:%S SGT')
         else:
             report_time = 'Unknown time'
         
@@ -129,8 +153,17 @@ class WazeAccidentMonitor:
         elif 'MINOR' in str(subtype).upper() or 'MINOR' in str(accident_type).upper():
             emoji = "⚠️"
             
-        message = f"{emoji} *ACCIDENT ALERT* {emoji}\n\n"
-        message += f"📍 *Location:* {street}, {city}\n"
+        # Format location in @sgaccident style
+        if street and city and city != 'Singapore':
+            location_text = f"Accident on {street}, {city}"
+        elif street:
+            location_text = f"Accident on {street}"
+        elif city:
+            location_text = f"Accident in {city}"
+        else:
+            location_text = "Accident at unknown location"
+            
+        message = f"{location_text}\n"
         message += f"🕐 *Reported:* {report_time}\n"
         
         if subtype:
@@ -143,8 +176,8 @@ class WazeAccidentMonitor:
         if lat and lon:
             google_maps_link = f"https://www.google.com/maps?q={lat},{lon}"
             waze_link = f"https://www.waze.com/ul?ll={lat},{lon}&navigate=yes"
-            message += f"\n🗺️ [View on Google Maps]({google_maps_link})\n"
-            message += f"🚗 [Open in Waze]({waze_link})\n"
+            message += f"\n🗺️ [View on Google Maps ({lat:.6f}, {lon:.6f})]({google_maps_link})\n"
+            message += f"🚗 [Open in Waze ({lat:.6f}, {lon:.6f})]({waze_link})\n"
         
         return message
     
@@ -341,57 +374,117 @@ class WazeAccidentMonitor:
         
         return normalized
     
-    def extract_address_from_waze(self, accident: Dict) -> str:
+    def load_posted_data(self):
+        """Load previously posted accidents and coordinates from files"""
+        try:
+            if os.path.exists(self.accidents_file):
+                with open(self.accidents_file, 'r') as f:
+                    for line in f:
+                        if line.strip():
+                            self.posted_accidents.add(line.strip())
+                print(f"Loaded {len(self.posted_accidents)} previously posted accidents")
+        except Exception as e:
+            print(f"Warning: Could not load posted accidents: {e}")
+            
+        try:
+            if os.path.exists(self.coordinates_file):
+                with open(self.coordinates_file, 'r') as f:
+                    for line in f:
+                        if line.strip():
+                            self.posted_coordinates.add(line.strip())
+                print(f"Loaded {len(self.posted_coordinates)} previously posted coordinates")
+        except Exception as e:
+            print(f"Warning: Could not load posted coordinates: {e}")
+    
+    def save_posted_data(self, accident_id=None, coordinate_id=None):
+        """Save posted accidents and coordinates to files"""
+        try:
+            if accident_id:
+                with open(self.accidents_file, 'a') as f:
+                    f.write(f"{accident_id}\n")
+        except Exception as e:
+            print(f"Warning: Could not save accident ID: {e}")
+            
+        try:
+            if coordinate_id:
+                with open(self.coordinates_file, 'a') as f:
+                    f.write(f"{coordinate_id}\n")
+        except Exception as e:
+            print(f"Warning: Could not save coordinate ID: {e}")
+    
+    def get_coordinate_id_from_text(self, text: str) -> str:
         """
-        Extract and normalize address from Waze accident data
+        Extract coordinate and time-based ID from message text for duplicate detection
+        
+        Args:
+            text: Message text
+            
+        Returns:
+            Coordinate and time-based ID string or text-based fallback with configurable precision
+        """
+        lat, lon = self.extract_coordinates(text)
+        
+        # Use current time for grouping since message timestamps may not be accident time
+        current_time = datetime.now(SINGAPORE_TZ)
+        
+        # Generate time window based on configuration
+        if self.time_window_hours == 1:
+            time_window = current_time.strftime('%Y%m%d_%H')  # Hour precision
+        elif self.time_window_hours == 24:
+            time_window = current_time.strftime('%Y%m%d')     # Day precision
+        else:
+            # Custom hour grouping
+            hour_group = (current_time.hour // self.time_window_hours) * self.time_window_hours
+            time_window = current_time.strftime(f'%Y%m%d_{hour_group:02d}')
+        
+        if lat and lon:
+            # Use configurable coordinate precision
+            return f"coord_{lat:.{self.coordinate_precision}f}_{lon:.{self.coordinate_precision}f}_{time_window}"
+        else:
+            # Fallback to text-based if no coordinates
+            address = self.extract_address_from_text(text)
+            return f"text_{self.normalize_address(address)}_{time_window}"
+
+    def get_coordinate_id(self, accident: Dict) -> str:
+        """
+        Extract coordinate and time-based ID from Waze accident data for duplicate detection
         
         Args:
             accident: Waze accident dictionary
             
         Returns:
-            Normalized address string
+            Coordinate and time-based ID string (rounded to ~50m precision and 1-hour time window)
         """
-        street = accident.get('street', '')
-        city = accident.get('city', '')
+        location = accident.get('location', {})
+        lat = location.get('y', 0)
+        lon = location.get('x', 0)
+        pub_millis = accident.get('pubMillis', 0)
         
-        if street and city:
-            full_address = f"{street}, {city}"
-        elif street:
-            full_address = street
-        elif city:
-            full_address = city
+        if lat and lon and pub_millis:
+            # Round coordinates to 3 decimal places (~111m precision) to catch nearby duplicates
+            # Round timestamp to hour to group accidents within same time period
+            utc_time = datetime.fromtimestamp(pub_millis / 1000, tz=pytz.UTC)
+            singapore_time = utc_time.astimezone(SINGAPORE_TZ)
+            time_hour = singapore_time.strftime('%Y%m%d_%H')  # Group by date and hour
+            return f"coord_{lat:.3f}_{lon:.3f}_{time_hour}"
+        elif lat and lon:
+            # Fallback without timestamp
+            from datetime import datetime
+            current_time = datetime.now(SINGAPORE_TZ)
+            time_hour = current_time.strftime('%Y%m%d_%H')
+            return f"coord_{lat:.3f}_{lon:.3f}_{time_hour}"
         else:
-            # Use coordinates as fallback
-            location = accident.get('location', {})
-            lat = location.get('y', 0)
-            lon = location.get('x', 0)
-            if lat and lon:
-                full_address = f"coordinates_{lat:.4f}_{lon:.4f}"
+            # Fallback to text-based if no coordinates
+            street = accident.get('street', '')
+            city = accident.get('city', '')
+            if street and city:
+                return f"text_{self.normalize_address(f'{street}, {city}')}"
+            elif street:
+                return f"text_{self.normalize_address(street)}"
             else:
-                full_address = "unknown_location"
-                
-        return self.normalize_address(full_address)
-        def load_shared_addresses(self):
-        """Load shared addresses from file to prevent cross-monitor duplicates"""
-        try:
-            if os.path.exists(self.shared_addresses_file):
-                with open(self.shared_addresses_file, 'r') as f:
-                    shared_addresses = f.read().strip().split('\n')
-                    for addr in shared_addresses:
-                        if addr.strip():
-                            self.posted_addresses.add(addr.strip())
-                print(f"Loaded {len(shared_addresses)} shared addresses for duplicate detection")
-        except Exception as e:
-            print(f"Warning: Could not load shared addresses: {e}")
-    
-    def save_shared_address(self, address: str):
-        """Save address to shared file for cross-monitor duplicate detection"""
-        try:
-            with open(self.shared_addresses_file, 'a') as f:
-                f.write(f"{address}\n")
-        except Exception as e:
-            print(f"Warning: Could not save shared address: {e}")
-        def extract_address_from_text(self, text: str) -> str:
+                return f"text_unknown_location"
+        
+    def extract_address_from_text(self, text: str) -> str:
         """
         Extract and normalize address from message text
         
@@ -445,10 +538,10 @@ class WazeAccidentMonitor:
         Returns:
             Formatted message string
         """
-        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        singapore_now = datetime.now(SINGAPORE_TZ)
+        timestamp = singapore_now.strftime('%Y-%m-%d %H:%M:%S SGT')
         
-        message = f"🚨 *ACCIDENT ALERT* (via @sgaccident)\n\n"
-        message += f"📅 *Reported:* {timestamp}\n\n"
+        message = f" *Reported:* {timestamp}\n\n"
         
         # Add original message content
         message += f"📝 *Details:*\n{original_message}\n\n"
@@ -457,8 +550,8 @@ class WazeAccidentMonitor:
         if lat and lon:
             google_maps_link = f"https://www.google.com/maps?q={lat},{lon}"
             waze_link = f"https://www.waze.com/ul?ll={lat},{lon}&navigate=yes"
-            message += f"🗺️ [View on Google Maps]({google_maps_link})\n"
-            message += f"🚗 [Open in Waze]({waze_link})\n"
+            message += f"🗺️ [View on Google Maps ({lat:.6f}, {lon:.6f})]({google_maps_link})\n"
+            message += f"🚗 [Open in Waze ({lat:.6f}, {lon:.6f})]({waze_link})\n"
         
         message += f"\n📡 *Source:* @sgaccident"
         
@@ -490,15 +583,15 @@ class WazeAccidentMonitor:
                     
                     message_text = post.get('text', '')
                     if message_text:
-                        # Extract and normalize address
-                        address = self.extract_address_from_text(message_text)
+                        # Extract coordinate-based ID for duplicate detection
+                        coordinate_id = self.get_coordinate_id_from_text(message_text)
                         
-                        # Skip if same address already posted
-                        if address and address in self.posted_addresses:
-                            print(f"⚠️ Skipping duplicate address from @sgaccident: {address}")
+                        # Skip if same coordinates already posted
+                        if coordinate_id and coordinate_id in self.posted_coordinates:
+                            print(f"⚠️ Skipping duplicate coordinates from @sgaccident: {coordinate_id}")
                             continue
                         
-                        # Extract coordinates
+                        # Extract coordinates for map links
                         lat, lon = self.extract_coordinates(message_text)
                         
                         # Format and send message
@@ -507,8 +600,9 @@ class WazeAccidentMonitor:
                         if self.send_telegram_message(formatted_message):
                             print(f"✓ Reposted from @sgaccident: {message_text[:50]}...")
                             self.processed_messages.add(message_id)
-                            if address:
-                                self.posted_addresses.add(address)
+                            if coordinate_id:
+                                self.posted_coordinates.add(coordinate_id)
+                                self.save_posted_data(coordinate_id=coordinate_id)
                             processed_count += 1
                         else:
                             print(f"✗ Failed to repost from @sgaccident")
@@ -524,12 +618,12 @@ class WazeAccidentMonitor:
                     if message_id not in self.processed_messages:
                         message_text = message.get('text', '')
                         if message_text:
-                            # Extract and normalize address
-                            address = self.extract_address_from_text(message_text)
+                            # Extract coordinate-based ID for duplicate detection
+                            coordinate_id = self.get_coordinate_id_from_text(message_text)
                             
-                            # Skip if same address already posted
-                            if address and address in self.posted_addresses:
-                                print(f"⚠️ Skipping duplicate address from forwarded @sgaccident: {address}")
+                            # Skip if same coordinates already posted
+                            if coordinate_id and coordinate_id in self.posted_coordinates:
+                                print(f"⚠️ Skipping duplicate coordinates from forwarded @sgaccident: {coordinate_id}")
                                 continue
                                 
                             lat, lon = self.extract_coordinates(message_text)
@@ -538,16 +632,17 @@ class WazeAccidentMonitor:
                             if self.send_telegram_message(formatted_message):
                                 print(f"✓ Reposted forwarded from @sgaccident: {message_text[:50]}...")
                                 self.processed_messages.add(message_id)
-                                if address:
-                                    self.posted_addresses.add(address)
+                                if coordinate_id:
+                                    self.posted_coordinates.add(coordinate_id)
+                                    self.save_posted_data(coordinate_id=coordinate_id)
                                 processed_count += 1
         
-        # Clean up old processed messages and addresses (keep only last 1000)
+        # Clean up old processed messages and coordinates (keep only last 1000)
         if len(self.processed_messages) > 1000:
             self.processed_messages = set(list(self.processed_messages)[-500:])
             
-        if len(self.posted_addresses) > 2000:  # Keep more addresses for better duplicate detection
-            self.posted_addresses = set(list(self.posted_addresses)[-1000:])
+        if len(self.posted_coordinates) > 2000:  # Keep more coordinates for better duplicate detection
+            self.posted_coordinates = set(list(self.posted_coordinates)[-1000:])
             
         return processed_count
     
@@ -572,18 +667,17 @@ class WazeAccidentMonitor:
         pub_millis = accident.get('pubMillis', 0)
         return f"{lat}_{lon}_{pub_millis}"
     
-    def monitor_and_post(self, check_interval: int = 300):
+    def monitor_and_post(self, check_interval: int = 60):
         """
         Continuously monitor Waze for accidents and post to Telegram
         Also monitors @sgaccident channel for updates
         
         Args:
-            check_interval: Seconds between checks (default: 300 = 5 minutes)
+            check_interval: Seconds between checks (default: 60 = 1 minute)
         """
-        print("Starting Enhanced Accident Monitor (Secondary Instance)...")
+        print("Starting Enhanced Accident Monitor - Secondary Channel...")
         print(f"Checking every {check_interval} seconds")
         print(f"Posting to Telegram channel: {self.telegram_channel_id}")
-        print("Note: Cross-source duplicate prevention is active")
         print("Also monitoring @sgaccident channel for updates")
         
         while True:
@@ -607,29 +701,30 @@ class WazeAccidentMonitor:
                     accident_id = self.get_accident_id(accident)
                     
                     if accident_id not in self.posted_accidents:
-                        # Check for duplicate address
-                        address = self.extract_address_from_waze(accident)
+                        # Check for duplicate coordinates
+                        coordinate_id = self.get_coordinate_id(accident)
                         
-                        if address and address in self.posted_addresses:
-                            print(f"⚠️ Skipping duplicate Waze accident at: {address}")
+                        if coordinate_id and coordinate_id in self.posted_coordinates:
+                            print(f"⚠️ Skipping duplicate Waze accident at: {coordinate_id}")
                             continue
                         
                         message = self.format_accident_message(accident)
                         if self.send_telegram_message(message):
                             print(f"✓ Posted Waze accident: {accident.get('street', 'Unknown')}")
                             self.posted_accidents.add(accident_id)
-                            if address:
-                                self.posted_addresses.add(address)
+                            self.save_posted_data(accident_id=accident_id, coordinate_id=coordinate_id)
+                            if coordinate_id:
+                                self.posted_coordinates.add(coordinate_id)
                             waze_posted += 1
                         else:
                             print(f"✗ Failed to post Waze accident: {accident.get('street', 'Unknown')}")
                 
-                # Clean up old accident IDs and addresses (keep only last 1000)
-                if len(self.posted_accidents) > 1000:
-                    self.posted_accidents = set(list(self.posted_accidents)[-500:])
+                # Clean up old accident IDs and coordinates using configurable limits
+                if len(self.posted_accidents) > self.max_stored_accidents:
+                    self.posted_accidents = set(list(self.posted_accidents)[-(self.max_stored_accidents//2):])
                 
-                if len(self.posted_addresses) > 1000:
-                    self.posted_addresses = set(list(self.posted_addresses)[-500:])
+                if len(self.posted_coordinates) > self.max_stored_coordinates:
+                    self.posted_coordinates = set(list(self.posted_coordinates)[-(self.max_stored_coordinates//2):])
                 
                 # Summary
                 total_posted = sg_processed + waze_posted
@@ -649,16 +744,34 @@ class WazeAccidentMonitor:
 
 def main():
     """
-    Main function to run the monitor
+    Main function to run the monitor with configurable duplicate detection
     """
     # Get credentials from environment variables or set them here
-    TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', '8500211695:AAFBFHrFII_ygxnmBjcFy0QsQqZQKfztV3U')
+    TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', '8306581686:AAFWGxVmhfvSXU2OCO5DsxyrEkxdBqGvgiQ')
     TELEGRAM_CHANNEL_ID = os.getenv('TELEGRAM_CHANNEL_ID', '-1003683261194')
     
-    # Bot token and channel ID are already configured
+    # Configurable duplicate detection parameters
+    # coordinate_precision: 3 = ~111m radius, 4 = ~11m radius, 2 = ~1100m radius
+    # time_window_hours: 1 = hourly grouping, 4 = 4-hour blocks, 24 = daily grouping
+    COORDINATE_PRECISION = int(os.getenv('COORDINATE_PRECISION', '3'))
+    TIME_WINDOW_HOURS = int(os.getenv('TIME_WINDOW_HOURS', '1'))
+    MAX_STORED_ACCIDENTS = int(os.getenv('MAX_STORED_ACCIDENTS', '5000'))
+    MAX_STORED_COORDINATES = int(os.getenv('MAX_STORED_COORDINATES', '5000'))
     
-    # Create monitor and start
-    monitor = WazeAccidentMonitor(TELEGRAM_BOT_TOKEN, TELEGRAM_CHANNEL_ID)
+    # Create monitor with configurable parameters
+    monitor = WazeAccidentMonitor(
+        TELEGRAM_BOT_TOKEN, 
+        TELEGRAM_CHANNEL_ID,
+        coordinate_precision=COORDINATE_PRECISION,
+        time_window_hours=TIME_WINDOW_HOURS,
+        max_stored_accidents=MAX_STORED_ACCIDENTS,
+        max_stored_coordinates=MAX_STORED_COORDINATES
+    )
+    
+    print(f"Duplicate Detection Config:")
+    print(f"  Coordinate Precision: {COORDINATE_PRECISION} decimal places (~{111/(10**COORDINATE_PRECISION):.0f}m radius)")
+    print(f"  Time Window: {TIME_WINDOW_HOURS} hour(s)")
+    print(f"  Max Stored: {MAX_STORED_ACCIDENTS} accidents, {MAX_STORED_COORDINATES} coordinates")
     
     # Check every 1 minute (60 seconds)
     monitor.monitor_and_post(check_interval=60)

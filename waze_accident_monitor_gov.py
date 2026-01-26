@@ -17,9 +17,9 @@ from typing import Dict, List, Optional, Tuple
 sys.stdout.reconfigure(line_buffering=True)
 
 # Configuration
-TELEGRAM_TOKEN = "7500211695:AAFBFHrFII_ygxnmBjcFy0QsQqZQKfztV3U"
-CHAT_ID = "-1002683261194"  # Target channel
-SG_ACCIDENT_CHANNEL = "-1001683261194"  # @sgaccident channel
+TELEGRAM_TOKEN = "8306581686:AAFWGxVmhfvSXU2OCO5DsxyrEkxdBqGvgiQ"
+CHAT_ID = "-1003683261194"  # Target channel
+SG_ACCIDENT_CHANNEL = "-1001486947378"  # @sgaccident channel
 
 # Data storage files
 PROCESSED_FILE = "processed_accidents.json"
@@ -40,43 +40,7 @@ def log_message(message: str) -> None:
     print(f"[{timestamp}] {message}")
     sys.stdout.flush()
 
-def get_singapore_traffic_cameras() -> List[Dict]:
-    """Get traffic camera data from Singapore government API"""
-    log_message("Fetching Singapore government traffic camera data...")
-    
-    try:
-        url = "https://api.data.gov.sg/v1/transport/traffic-images"
-        response = requests.get(url, timeout=10)
-        
-        if response.status_code == 200:
-            data = response.json()
-            items = data.get('items', [])
-            
-            if items:
-                cameras = items[0].get('cameras', [])
-                log_message(f"✓ Retrieved {len(cameras)} traffic cameras")
-                
-                # Look for cameras that might show unusual traffic patterns
-                congested_areas = []
-                for camera in cameras:
-                    location = camera.get('location', {})
-                    latitude = location.get('latitude', 0)
-                    longitude = location.get('longitude', 0)
-                    camera_id = camera.get('camera_id', '')
-                    
-                    # Store camera info for analysis
-                    congested_areas.append({
-                        'id': f"camera_{camera_id}",
-                        'location': f"{latitude},{longitude}",
-                        'description': f"Traffic camera monitoring at {camera_id}",
-                        'image_url': camera.get('image', ''),
-                        'timestamp': datetime.datetime.now().isoformat(),
-                        'source': 'traffic_camera'
-                    })
-                
-                return congested_areas
-            else:
-                log_message("No camera data available")
+# Removed government API function - focusing on Waze and @sgaccident only
                 
         else:
             log_message(f"Traffic cameras API failed: {response.status_code}")
@@ -86,13 +50,7 @@ def get_singapore_traffic_cameras() -> List[Dict]:
     
     return []
 
-def get_singapore_taxi_availability() -> List[Dict]:
-    """Get taxi availability data to detect traffic congestion"""
-    log_message("Analyzing taxi availability for congestion patterns...")
-    
-    try:
-        url = "https://api.data.gov.sg/v1/transport/taxi-availability"
-        response = requests.get(url, timeout=10)
+# Removed taxi availability function - focusing on Waze and @sgaccident only
         
         if response.status_code == 200:
             data = response.json()
@@ -175,9 +133,7 @@ def save_traffic_cache(data: Dict) -> None:
     except Exception as e:
         log_message(f"Error saving traffic cache: {e}")
 
-def scrape_police_website() -> List[Dict]:
-    """Scrape Singapore Police website for traffic updates"""
-    log_message("Checking Singapore Police website for traffic updates...")
+# Removed police website scraping - focusing on Waze and @sgaccident only
     
     try:
         url = "https://www.police.gov.sg"
@@ -216,33 +172,7 @@ def scrape_police_website() -> List[Dict]:
     
     return []
 
-def get_alternative_traffic_data() -> List[Dict]:
-    """Get traffic data from all available alternative sources"""
-    log_message("Fetching traffic data from Singapore government sources...")
-    
-    all_incidents = []
-    
-    # Get data from all working sources
-    sources = [
-        ('Singapore Traffic Cameras', get_singapore_traffic_cameras),
-        ('Singapore Taxi Analysis', get_singapore_taxi_availability),
-        ('Police Website Scan', scrape_police_website)
-    ]
-    
-    for source_name, source_func in sources:
-        try:
-            log_message(f"Checking {source_name}...")
-            incidents = source_func()
-            if incidents:
-                all_incidents.extend(incidents)
-                log_message(f"✓ {source_name}: {len(incidents)} items")
-            else:
-                log_message(f"- {source_name}: No incidents found")
-        except Exception as e:
-            log_message(f"✗ {source_name} failed: {e}")
-    
-    log_message(f"Total incidents from government sources: {len(all_incidents)}")
-    return all_incidents
+# Removed alternative traffic data function - using only Waze and @sgaccident
 
 def attempt_waze_with_delay() -> List[Dict]:
     """Try Waze API with extended delays and different approaches"""
@@ -388,17 +318,14 @@ def format_accident_message(incident: Dict, source: str = "Government") -> str:
     
     return message
 
-def process_government_data() -> None:
-    """Process incidents from Singapore government sources"""
+def process_waze_data() -> None:
+    """Process incidents from Waze only"""
     try:
-        # Try Waze first, but don't rely on it
+        # Try Waze with anti-blocking measures
         waze_incidents = attempt_waze_with_delay()
         
-        # Get government data sources
-        gov_incidents = get_alternative_traffic_data()
-        
-        # Combine all incidents
-        all_incidents = waze_incidents + gov_incidents
+        # Use only Waze data
+        all_incidents = waze_incidents
         
         waze_processed, telegram_processed = load_processed_accidents()
         new_count = 0
@@ -529,16 +456,15 @@ def process_sgaccident_updates() -> None:
         log_message(f"Error processing @sgaccident updates: {e}")
 
 def main():
-    """Main monitoring loop with Singapore government data integration"""
-    log_message("Starting SINGAPORE GOVERNMENT integrated accident monitoring...")
-    log_message(f"Data sources: SG Gov APIs + @sgaccident + Waze (if available)")
+    """Main monitoring loop with Waze and @sgaccident only"""
+    log_message("Starting accident monitoring with Waze and @sgaccident...")
+    log_message(f"Data sources: Waze API + @sgaccident channel")
     log_message(f"Target channel: {CHAT_ID}")
-    log_message(f"Government APIs: Traffic Cameras, Taxi Analysis, Police Website")
     
     while True:
         try:
-            # Process all sources
-            process_government_data()     # Singapore government + Waze attempts
+            # Process both sources
+            process_waze_data()           # Waze API only
             process_sgaccident_updates()  # @sgaccident channel
             
             # Clean up old processed incidents (keep last 1000)
