@@ -56,12 +56,22 @@ def is_within_singapore(lat, lon):
         return False
 
 def contains_malaysia_keywords(text):
-    """Check if text contains Malaysia-related keywords"""
+    """Check if text is primarily about Malaysia (not just mentioning it)"""
     if not text:
         return False
     text_lower = text.lower()
-    malaysia_keywords = ['malaysia', 'johor', 'kl', 'kuala lumpur', 'selangor', 'penang', 'perak', 'kedah', 'terengganu', 'kelantan', 'pahang', 'negeri sembilan', 'melaka', 'sabah', 'sarawak']
-    return any(keyword in text_lower for keyword in malaysia_keywords)
+    
+    # Strong Malaysia indicators (block these)
+    strong_malaysia_keywords = ['malaysia', 'kl', 'kuala lumpur', 'selangor', 'penang', 'perak', 'kedah', 'terengganu', 'kelantan', 'pahang', 'negeri sembilan', 'melaka', 'sabah', 'sarawak']
+    
+    # Johor is special case - could be relevant to Singapore traffic
+    # Only block if it's clearly about Malaysian side
+    if 'johor' in text_lower:
+        # Allow if mentions Singapore or causeway (cross-border traffic)
+        if any(sg_keyword in text_lower for sg_keyword in ['singapore', 'causeway', 'woodlands', 'checkpoint', 'customs', 'border']):
+            return False
+    
+    return any(keyword in text_lower for keyword in strong_malaysia_keywords)
 
 def load_processed_accidents():
     """Load the list of processed accident IDs"""
@@ -133,7 +143,19 @@ def get_waze_alerts() -> List[Dict]:
             'types': 'alerts,traffic'
         }
         
-        response = requests.get(WAZE_API_URL, params=params, timeout=10)
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+            'Referer': 'https://www.waze.com/',
+            'Accept': 'application/json, text/plain, */*',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Connection': 'keep-alive',
+            'Sec-Fetch-Dest': 'empty',
+            'Sec-Fetch-Mode': 'cors',
+            'Sec-Fetch-Site': 'same-origin'
+        }
+        
+        response = requests.get(WAZE_API_URL, params=params, headers=headers, timeout=10)
         response.raise_for_status()
         data = response.json()
         return data.get('alerts', [])
@@ -272,15 +294,22 @@ def extract_coordinates_from_text(text):
     return None, None
 
 def is_accident_related(text):
-    """Check if text is related to accidents"""
+    """Check if text is related to accidents or traffic incidents"""
     if not text:
         return False
     
     text_lower = text.lower()
     accident_keywords = [
+        # Original accident keywords
         'accident', 'crash', 'collision', 'hit', 'injured', 'ambulance', 
         'police', 'traffic police', 'scdf', 'emergency', 'road block',
-        'breakdown', 'stalled', 'blocked', 'lane closed', 'diversions'
+        'breakdown', 'stalled', 'blocked', 'lane closed', 'diversions',
+        
+        # Additional traffic/incident keywords commonly used in @sgaccident
+        'incident', 'situation', 'congestion', 'traffic', 'jam', 'slow moving', 'slow traffic',
+        'vehicle', 'car trouble', 'road works', 'construction', 'closure', 'disruption', 'delay',
+        'obstruction', 'hazard', 'alert', 'warning', 'caution', 'avoid', 'alternative route',
+        'stationary', 'stuck', 'lane change', 'merge', 'exit', 'ramp', 'slip road'
     ]
     
     return any(keyword in text_lower for keyword in accident_keywords)
@@ -463,7 +492,19 @@ def process_sgaccident_updates():
                     message_id = post.get('message_id')
                     text = post.get('text', '') or post.get('caption', '')
                     
-                    if text and is_accident_related(text):
+                    log_message(f"📨 @sgaccident message {message_id}: {text[:80]}{'...' if len(text) > 80 else ''}")
+                    
+                    if not text:
+                        log_message(f"⚠️  Skipping message {message_id}: No text content")
+                        continue
+                    
+                    if not is_accident_related(text):
+                        log_message(f"🔍 Skipping message {message_id}: Not accident-related")
+                        continue
+                    
+                    log_message(f"✅ Processing accident-related message {message_id}")
+                    
+                    if True:  # Changed from 'if text and is_accident_related(text):'
                         # Create unique accident ID
                         accident_id = f"sgaccident_{chat_id}_{message_id}"
                         
@@ -496,7 +537,7 @@ def process_sgaccident_updates():
                         
                         # Skip Malaysia-related accidents
                         if contains_malaysia_keywords(text):
-                            log_message("Skipping Malaysia-related accident")
+                            log_message(f"🇲🇾 Skipping Malaysia-related accident: {text[:60]}...")
                             continue
                         
                         # Format and send message
