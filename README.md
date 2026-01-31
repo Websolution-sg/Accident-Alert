@@ -1,23 +1,29 @@
 # Enhanced Waze Accident Monitor for Telegram
 
-This application monitors **multiple sources** for accident occurrences in Singapore and automatically posts them to your Telegram channel with smart duplicate prevention.
+## 🎯 PRODUCTION STATUS: ACTIVE ✅
 
-## ✨ Enhanced Features
+**Current Configuration:** Method 2 - Real-time user-based monitoring  
+**Deployment:** Google Cloud VM (`sg-accident-monitor`)  
+**Last Updated:** January 31, 2026
 
-- 🚨 **Dual Source Monitoring**: Monitors both Waze API and @sgaccident Telegram channel
-- 📱 **Smart Telegram Integration**: Posts to your channel with rich formatting
-- 📍 **Coordinate Extraction**: Automatically extracts location coordinates from text
+This application monitors **@sgaccident Telegram channel** for accident occurrences in Singapore and automatically forwards them to your target channel with real-time delivery.
+
+## ✨ Production Features
+
+- 🚨 **Real-time Monitoring**: 0-1 second delay using user account access (@pukiboi)
+- 📱 **Smart Telegram Integration**: Direct forwarding with rich formatting
+- 📍 **Coordinate Extraction**: Automatically extracts location coordinates from text  
 - 🗺️ **Interactive Maps**: Generates Google Maps and Waze navigation links
-- 🚫 **Duplicate Prevention**: Prevents posting same accident location twice
-- 🔧 **Address Normalization**: Standardizes addresses to avoid duplicates
-- ⏰ **Configurable Intervals**: Adjustable check frequency
-- 🛡️ **Robust Error Handling**: Continues running despite API issues
+- 🚫 **No Filtering**: Forwards ALL @sgaccident messages for maximum coverage
+- 🔧 **Format Consistency**: Same message format as Waze accidents
+- ⏰ **Real-time Updates**: User account access provides instant notifications
+- 🛡️ **Robust Deployment**: Running on Google Cloud VM infrastructure
 
-## 🔄 How It Works
+## 🔄 Current Architecture
 
-1. **Waze API Monitoring**: Fetches real-time accident data from Waze's live map
-2. **Telegram Channel Monitoring**: Watches @sgaccident for new accident posts
-3. **Smart Processing**: Extracts coordinates, normalizes addresses, prevents duplicates
+1. **@sgaccident Monitoring**: Real-time monitoring using @pukiboi user account via Telethon
+2. **Message Processing**: Instant forwarding with location extraction and formatting
+3. **Target Delivery**: Posts to target channel (-1003683261194) with consistent format
 4. **Enhanced Posting**: Sends formatted alerts with map links to your channel
 
 ## Setup Instructions
