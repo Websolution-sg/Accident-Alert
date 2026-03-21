@@ -25,7 +25,7 @@ SGACCIDENT_CHANNEL_ID = -1001486947378  # @sgaccident (source)
 TARGET_CHANNEL_ID = -1003683261194      # Your target channel (where to post)
 
 # Session file
-SESSION_FILE = "pukiboi_session"
+SESSION_FILE = "pukiboi_final_session"
 
 # Data files
 USER_PROCESSED_FILE = "user_processed_accidents.json"
@@ -136,18 +136,23 @@ def save_user_processed_accidents(processed_ids):
         log_message(f"Error saving processed accidents: {e}")
 
 def format_user_accident_message(original_text, coordinates=None):
-    """Format accident message using the same format as Waze monitoring"""
-    # Extract location from text
+    """Format accident message using exact same format as Waze monitoring"""
+    # Extract location from text - improved extraction
     lines = original_text.strip().split('\n')
     location_text = "Unknown location"
     
-    # Look for location patterns in the text
+    # Look for location patterns in the text (improved)
     for line in lines:
         line = line.strip()
-        if any(keyword in line.lower() for keyword in ['road', 'rd', 'street', 'st', 'avenue', 'ave', 'expressway', 'highway', 'pie', 'cte', 'aye', 'bke', 'sle', 'tpe']):
+        # Check for Singapore road/location keywords
+        if any(keyword in line.lower() for keyword in [
+            'road', 'rd', 'street', 'st', 'avenue', 'ave', 'expressway', 'highway',
+            'pie', 'cte', 'aye', 'bke', 'sle', 'tpe', 'kpe', 'ecp', 'mrt', 'lrt',
+            'tampines', 'jurong', 'woodlands', 'bedok', 'clementi', 'bishan',
+            'ang mo kio', 'toa payoh', 'bukit timah', 'orchard', 'marina']):
             location_text = line
             break
-        elif len(line) > 10 and not line.startswith('🚨') and not line.startswith('Traffic'):
+        elif len(line) > 10 and not line.startswith('🚨') and not line.startswith('Traffic') and not line.startswith('#'):
             location_text = line
             break
     
@@ -155,27 +160,32 @@ def format_user_accident_message(original_text, coordinates=None):
     if location_text == "Unknown location" and lines:
         for line in lines:
             line = line.strip()
-            if len(line) > 5 and not line.startswith('🚨'):
+            if len(line) > 5 and not line.startswith('🚨') and not line.startswith('@'):
                 location_text = line[:100]  # Limit length
                 break
     
-    # Format timestamp with SGT
-    timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S SGT')
+    # Clean up location text (remove extra @sgaccident mentions, etc.)
+    location_text = location_text.replace('@sgaccident', '').strip()
+    if location_text.startswith(':'):
+        location_text = location_text[1:].strip()
     
-    # Build the message using consistent format (same as Waze)
+    # Format timestamp with proper SGT timezone (exact match to Waze)
+    timestamp = datetime.datetime.now(SGT).strftime('%Y-%m-%d %H:%M:%S SGT')
+    
+    # Build the message using EXACT same format as Waze
     message = f"Accident on {location_text}\n"
     message += f"🕐 Reported: {timestamp}\n"
-    message += f"👤 Reported by: @sgaccident\n"
-    message += f"📈 Confidence: N/A\n"
-    message += f"✅ Reliability: N/A\n\n"
+    message += f"👤 Reported by: @sgaccident community\n"
+    message += f"📈 Confidence: Community verified\n"
+    message += f"✅ Reliability: Community verified\n\n"
     
-    # Add coordinates if available
+    # Add coordinates if available (exact same precision as Waze)
     if coordinates and len(coordinates) == 2:
         lat, lon = coordinates
         google_maps_url = f"https://www.google.com/maps?q={lat},{lon}"
         waze_url = f"https://www.waze.com/ul?ll={lat},{lon}&navigate=yes"
-        message += f"🗺️ [View on Google Maps ({lat}, {lon})]({google_maps_url})\n"
-        message += f"🚗 [Open in Waze ({lat}, {lon})]({waze_url})"
+        message += f"🗺️ [View on Google Maps ({lat:.6f}, {lon:.6f})]({google_maps_url})\n"
+        message += f"🚗 [Open in Waze ({lat:.6f}, {lon:.6f})]({waze_url})"
     else:
         message += f"🗺️ Location coordinates not available"
     
@@ -190,26 +200,17 @@ async def setup_client():
     client = TelegramClient(SESSION_FILE, API_ID, API_HASH)
     
     try:
-        # Connect and check if authorized
-        await client.connect()
+        # Start with phone number - should use existing session
+        await client.start(phone=PHONE_NUMBER)
         
-        if not await client.is_user_authorized():
-            log_message("❌ Session not authorized - need to create new session")
-            log_message("💡 Run create_telethon_session_local.py on your LOCAL machine")
-            log_message("📤 Then upload the session file to this VM")
-            return None
-        
-        # Get user info
+        # Verify authentication
         me = await client.get_me()
-        log_message(f"✅ TELETHON authenticated as: @{me.username or 'pukiboi'}")
-        log_message(f"👤 User: {me.first_name} {me.last_name or ''}")
+        log_message(f"✅ Telethon authenticated as: @{me.username or 'pukiboi'} ({me.first_name or 'User'})")
         log_message(f"📱 Phone: {PHONE_NUMBER}")
-        log_message("🔑 Using TRUE Telethon user authentication")
-        
         return client
-        
     except Exception as e:
-        log_message(f"❌ Telethon connection failed: {e}")
+        log_message(f"❌ Telethon authentication failed: {e}")
+        log_message("💡 You may need to run setup_telethon_session.py first")
         return None
 
 async def monitor_sgaccident_user(client):

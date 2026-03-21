@@ -25,7 +25,7 @@ SGACCIDENT_CHANNEL_ID = -1001486947378  # @sgaccident (source)
 TARGET_CHANNEL_ID = -1003683261194      # Your target channel (where to post)
 
 # Session file
-SESSION_FILE = "pukiboi_session"
+SESSION_FILE = "pukiboi_final_session"
 
 # Data files
 USER_PROCESSED_FILE = "user_processed_accidents.json"
@@ -190,26 +190,17 @@ async def setup_client():
     client = TelegramClient(SESSION_FILE, API_ID, API_HASH)
     
     try:
-        # Connect and check if authorized
-        await client.connect()
+        # Start with phone number - should use existing session
+        await client.start(phone=PHONE_NUMBER)
         
-        if not await client.is_user_authorized():
-            log_message("❌ Session not authorized - need to create new session")
-            log_message("💡 Run create_telethon_session_local.py on your LOCAL machine")
-            log_message("📤 Then upload the session file to this VM")
-            return None
-        
-        # Get user info
+        # Verify authentication
         me = await client.get_me()
-        log_message(f"✅ TELETHON authenticated as: @{me.username or 'pukiboi'}")
-        log_message(f"👤 User: {me.first_name} {me.last_name or ''}")
+        log_message(f"✅ Telethon authenticated as: @{me.username or 'pukiboi'} ({me.first_name or 'User'})")
         log_message(f"📱 Phone: {PHONE_NUMBER}")
-        log_message("🔑 Using TRUE Telethon user authentication")
-        
         return client
-        
     except Exception as e:
-        log_message(f"❌ Telethon connection failed: {e}")
+        log_message(f"❌ Telethon authentication failed: {e}")
+        log_message("💡 You may need to run setup_telethon_session.py first")
         return None
 
 async def monitor_sgaccident_user(client):

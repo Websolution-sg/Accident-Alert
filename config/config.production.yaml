@@ -1,0 +1,94 @@
+# Enhanced Accident Monitoring System Configuration
+
+# Environment Configuration (local, development, staging, production)
+environment: production
+debug: false
+
+# Telegram Configuration
+telegram:
+  bot_token: "8306581686:AAFWGxVmhfvSXU2OCO5DsxyrEkxdBqGvgiQ"
+  api_id: 37340693
+  api_hash: "59c3213333e09271844a64d38be167a4"
+  phone_number: "+6598590227"
+  session_file: "pukiboi_session"
+  
+  # Channel IDs
+  sgaccident_channel_id: -1001486947378  # Source channel (@sgaccident)
+  target_channel_id: -1003683261194      # Target channel (your channel)
+  
+  # API limits
+  request_timeout: 10
+  max_retries: 3
+  rate_limit_delay: 1.0
+
+# Waze API Configuration
+waze:
+  api_url: "https://www.waze.com/live-map/api/georss"
+  
+  # Singapore bounding box
+  bbox_bottom: 1.1304753
+  bbox_left: 103.6055424
+  bbox_right: 104.0945619
+  bbox_top: 1.4764671
+  
+  # Request settings
+  request_timeout: 10
+  max_retries: 3
+  poll_interval: 60  # seconds between checks
+
+# Geographic Configuration
+geographic:
+  # Singapore bounds for filtering
+  singapore_north: 1.4784
+  singapore_south: 1.1496
+  singapore_east: 104.0853
+  singapore_west: 103.6065
+  
+  # Duplicate detection
+  duplicate_detection_radius: 100  # meters
+  coordinate_precision: 3
+
+# Monitoring & Logging
+monitoring:
+  health_check_interval: 300  # seconds
+  log_level: "INFO"
+  log_format: "json"
+  max_log_file_size: 10485760  # 10MB
+  log_backup_count: 5
+  
+  # Performance tracking
+  enable_metrics: true
+  metrics_retention: 1000
+  
+  # Error tracking
+  max_errors_tracked: 100
+  error_alert_threshold: 10
+
+# Database/Storage Configuration
+database:
+  processed_accidents_file: "processed_accidents.json"
+  telegram_offset_file: "telegram_offset.json"  
+  user_processed_file: "user_processed_accidents.json"
+  
+  # Data retention
+  max_processed_records: 10000
+  cleanup_interval_hours: 24
+
+# Security Configuration
+security:
+  validate_coordinates: true
+  sanitize_messages: true
+  max_message_length: 4096
+  
+  # Rate limiting
+  enable_rate_limiting: true
+  max_requests_per_minute: 30
+  
+  # Circuit breaker settings
+  circuit_breaker_failure_threshold: 5
+  circuit_breaker_recovery_timeout: 60
+
+# Deployment Configuration
+deployment_region: "us-central1-a"
+vm_name: "sg-accident-monitor"
+project_id: "verdant-petal-485213-h2"

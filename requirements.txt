@@ -1,2 +1,20 @@
+# Core dependencies
 requests==2.31.0
 pytz==2023.3
+
+# Enhanced monitoring and logging
+psutil>=5.9.0    # System resource monitoring
+pyyaml>=6.0      # YAML configuration support
+
+# Telegram client for user account access
+telethon>=1.42.0
+
+# Testing and development
+pytest>=7.4.0        # Testing framework
+pytest-asyncio>=0.21.1  # Async testing support
+requests-mock>=1.11.0   # HTTP mocking for tests
+coverage>=7.2.0         # Code coverage
+
+# Optional: Advanced features
+# dataclasses-json>=0.5.9  # JSON serialization for dataclasses
+# redis>=4.5.0             # For distributed caching if needed
