@@ -199,52 +199,124 @@ def format_sgaccident_message(original_text, message_date):
         message += f"🗺️ [View on Google Maps ({lat:.6f}, {lon:.6f})]({google_maps_url})\n"
         message += f"🚗 [Open in Waze ({lat:.6f}, {lon:.6f})]({waze_url})"
     else:
-        # Fallback for Singapore general area
-        message += f"🗺️ [View on Google Maps (Singapore)](https://www.google.com/maps/place/Singapore)\n"
-        message += f"🚗 [Open in Waze (Singapore)](https://www.waze.com/ul?q=Singapore&navigate=yes)"
+        message += "🗺️ Location coordinates not available"
     
     return message
 
-def send_telegram_message(message):
-    """Send message to target Telegram channel using bot API"""
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-    data = {
-        'chat_id': TARGET_CHANNEL_ID,
-        'text': message,
-        'parse_mode': 'Markdown'
-    }
-    
-    try:
-        response = requests.post(url, data=data, timeout=30)
-        response.raise_for_status()
-        return response.status_code == 200
-    except requests.exceptions.RequestException as e:
-        log_message(f"❌ Failed to send message: {e}")
-        return False
-
-def load_processed_messages():
-    """Load list of processed message IDs"""
+def load_processed_user_accidents():
+    """Load processed accidents from user monitoring"""
     try:
         if os.path.exists(USER_PROCESSED_FILE):
             with open(USER_PROCESSED_FILE, 'r') as f:
-                return set(json.load(f))
+                data = json.load(f)
+                return set(data.get('processed_messages', []))
     except Exception as e:
-        log_message(f"Error loading processed messages: {e}")
+        log_message(f"Error loading processed accidents: {e}")
     return set()
 
-def save_processed_messages(processed_set):
-    """Save list of processed message IDs"""
+def save_processed_user_accidents(processed_set):
+    """Save processed accidents"""
     try:
+        data = {'processed_messages': list(processed_set)}
         with open(USER_PROCESSED_FILE, 'w') as f:
-            json.dump(list(processed_set), f)
-        return True
+            json.dump(data, f)
     except Exception as e:
-        log_message(f"Error saving processed messages: {e}")
-        return False
+        log_message(f"Error saving processed accidents: {e}")
 
-async def setup_client():
-    """Initialize and return Telethon client"""
+def post_to_telegram(message):
+    """Post message to target channel using Bot API"""
     try:
+        url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+        payload = {
+            "chat_id": TARGET_CHANNEL_ID,
+            "text": message,
+            "parse_mode": "Markdown",
+            "disable_web_page_preview": True
+        }
+        
+        response = requests.post(url, json=payload, timeout=10)
+        
+        if response.status_code == 200:
+            result = response.json()
+            if result.get('ok'):
+                message_id = result.get('result', {}).get('message_id')
+                log_message(f"✅ Message posted successfully (ID: {message_id})")
+                return True
+            else:
+                log_message(f"❌ Telegram API error: {result.get('description')}")
+        else:
+            log_message(f"❌ HTTP error {response.status_code}: {response.text}")
+            
+    except Exception as e:
+        log_message(f"❌ Error posting message: {e}")
+    
+    return False
+
+# Global variables for session management
+client = None
+processed_messages = set()
+
+async def message_handler(event):
+    """Handle new messages from @sgaccident channel"""
+    global processed_messages
+    
+    try:
+        # Get message details
+        message = event.message
+        chat = await event.get_chat()
+        
+        # Verify this is from @sgaccident channel
+        if message.chat_id != SGACCIDENT_CHANNEL_ID:
+            return
+        
+        # Generate unique message ID
+        message_id = f"{message.chat_id}_{message.id}"
+        
+        # Check if already processed
+        if message_id in processed_messages:
+            return
+            
+        # Get message text
+        message_text = message.text or message.caption or ""
+        if not message_text:
+            return
+            
+        # Check if it's accident-related (simple keyword check)
+        accident_keywords = ['accident', 'crash', 'collision', 'jam', 'traffic', 'road', 'expressway', 'breakdown']
+        text_lower = message_text.lower()
+        if not any(keyword in text_lower for keyword in accident_keywords):
+            return
+            
+        log_message(f"📨 New @sgaccident message detected (ID: {message.id})")
+        
+        # Format the message using Waze-style formatting
+        formatted_message = format_sgaccident_message(message_text, message.date)
+        
+        # Post to target channel
+        if post_to_telegram(formatted_message):
+            # Mark as processed
+            processed_messages.add(message_id)
+            save_processed_user_accidents(processed_messages)
+            log_message(f"✅ Successfully processed and posted message {message.id}")
+        else:
+            log_message(f"❌ Failed to post message {message.id}")
+            
+    except Exception as e:
+        log_message(f"❌ Error handling message: {e}")
+
+async def main():
+    """Main async function"""
+    global client, processed_messages
+    
+    log_message("🚨 Starting Enhanced Telethon @sgaccident Monitor...")
+    log_message("📱 Using @pukiboi user account for real-time monitoring")
+    
+    # Load processed messages
+    processed_messages = load_processed_user_accidents()
+    log_message(f"📋 Loaded {len(processed_messages)} previously processed messages")
+    
+    try:
+        # Create and start Telethon client
         client = TelegramClient(SESSION_FILE, API_ID, API_HASH)
         await client.start(phone=PHONE_NUMBER)
         
@@ -252,74 +324,19 @@ async def setup_client():
         me = await client.get_me()
         log_message(f"✅ Connected as @{me.username} ({me.first_name})")
         
-        return client
-    except Exception as e:
-        log_message(f"❌ Failed to connect: {e}")
-        return None
-
-async def main():
-    """Main monitoring function"""
-    log_message("🚀 Starting Enhanced @sgaccident Monitor with Waze-Style Formatting")
-    log_message("🔄 Using @pukiboi user account authentication")
-    log_message("🎨 Posts will be formatted like Waze accidents")
-    
-    # Load processed messages
-    processed_messages = load_processed_messages()
-    log_message(f"📁 Loaded {len(processed_messages)} processed messages")
-    
-    # Setup client
-    client = await setup_client()
-    if not client:
-        log_message("❌ Could not establish connection")
-        return
-    
-    # Test message
-    test_msg = "🎯 Enhanced @sgaccident monitor with Waze formatting is ACTIVE!\n📱 Real-time monitoring started\n🎨 Messages will be formatted with location, time, and maps links"
-    if send_telegram_message(test_msg):
-        log_message("📧 Startup notification sent")
-    
-    @client.on(events.NewMessage(chats=SGACCIDENT_CHANNEL_ID))
-    async def handler(event):
-        try:
-            message_id = event.message.id
-            
-            # Skip if already processed
-            if message_id in processed_messages:
-                return
-            
-            # Get message content
-            text = event.message.message or ""
-            message_date = event.message.date.astimezone(SGT)
-            
-            log_message(f"📨 New message: {text[:100]}...")
-            
-            # Format message with Waze-style formatting
-            formatted_message = format_sgaccident_message(text, message_date)
-            
-            # Send formatted message
-            if send_telegram_message(formatted_message):
-                processed_messages.add(message_id)
-                save_processed_messages(processed_messages)
-                log_message(f"✅ Formatted and posted message {message_id}")
-            else:
-                log_message(f"❌ Failed to post message {message_id}")
-                
-        except Exception as e:
-            log_message(f"❌ Error processing message: {e}")
-    
-    log_message("🎯 Real-time event listener ACTIVE - monitoring @sgaccident")
-    log_message("🎨 Messages will be formatted with Waze-style layout")
-    log_message("⚡ Waiting for messages... (0-1 second delivery)")
-    
-    # Keep the script running
-    try:
+        # Add event handler for new messages
+        client.add_event_handler(message_handler, events.NewMessage(chats=[SGACCIDENT_CHANNEL_ID]))
+        log_message("🎯 Real-time event listener ACTIVE - monitoring @sgaccident")
+        log_message("⚡ Waiting for messages... (0-1 second delivery)")
+        
+        # Keep the client running
         await client.run_until_disconnected()
-    except KeyboardInterrupt:
-        log_message("🛑 Manual stop requested")
+        
     except Exception as e:
-        log_message(f"💥 Connection lost: {e}")
+        log_message(f"❌ Error in main function: {e}")
     finally:
-        log_message("🔚 Monitor stopped")
+        if client:
+            await client.disconnect()
 
 if __name__ == "__main__":
     asyncio.run(main())
